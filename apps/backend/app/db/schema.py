@@ -1,0 +1,144 @@
+from datetime import datetime
+from typing import Any, Annotated, Optional
+
+from bson import ObjectId
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+def validate_object_id(value: Any) -> ObjectId:
+    if isinstance(value, ObjectId):
+        return value
+    if isinstance(value, str):
+        return ObjectId(value)
+    raise TypeError("ObjectId or str required")
+
+
+MongoObjectId = Annotated[ObjectId, BeforeValidator(validate_object_id)]
+
+
+class BaseDocument(BaseModel):
+    """Base model for all MongoDB documents. Handles the _id -> id alias."""
+
+    id: Optional[MongoObjectId] = Field(default=None, alias="_id")
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        populate_by_name=True,
+        from_attributes=True,
+        json_encoders={ObjectId: str},
+    )
+
+
+class UserPreferences(BaseModel):
+    email_notifications: bool = True
+
+
+class UserDocument(BaseDocument):
+    email: str
+    first_name: str
+    last_name: str
+    password_hash: str
+    preferences: UserPreferences = Field(default_factory=UserPreferences)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login: Optional[datetime] = None
+
+
+class TopicDocument(BaseDocument):
+    user_id: MongoObjectId
+    name: str
+    description: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SourceDocument(BaseDocument):
+    user_id: MongoObjectId
+    topic_id: MongoObjectId
+    filename: str
+    file_hash: str
+    total_chunks: int
+    ingested_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ChunkMetadata(BaseModel):
+    page_number: int
+    page_range: str
+
+
+class DocumentChunkDocument(BaseDocument):
+    user_id: MongoObjectId
+    topic_id: MongoObjectId
+    source_id: MongoObjectId
+    chunk_index: int
+    metadata: ChunkMetadata
+    text: str
+    embedding: list[float]
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class JournalEntryDocument(BaseDocument):
+    user_id: MongoObjectId
+    topic_id: MongoObjectId
+    content: str
+    embedding: list[float]
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class QuizOption(BaseModel):
+    id: str
+    text: str
+
+
+class QuizQuestion(BaseModel):
+    id: str
+    type: str
+    question: str
+    options: list[QuizOption]
+    correct_answer: str
+    points: int
+    source_type: str
+    source_reference_id: MongoObjectId
+
+
+class QuizDocument(BaseDocument):
+    user_id: MongoObjectId
+    topic_id: MongoObjectId
+    title: str
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    questions: list[QuizQuestion]
+
+
+class QuizAnswer(BaseModel):
+    question_id: str
+    selected_option_id: str
+    is_correct: bool
+
+
+class QuizAttemptDocument(BaseDocument):
+    quiz_id: MongoObjectId
+    user_id: MongoObjectId
+    topic_id: MongoObjectId
+    score: int
+    max_score: int
+    completed_at: datetime = Field(default_factory=datetime.utcnow)
+    answers: list[QuizAnswer]
+
+
+class NotificationDocument(BaseDocument):
+    user_id: MongoObjectId
+    type: str
+    title: str
+    message: str
+    is_read: bool = False
+    action_url: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class AuditLogDocument(BaseDocument):
+    user_id: MongoObjectId
+    action: str
+    resource_type: str
+    resource_id: MongoObjectId
+    metadata: dict[str, Any]
+    created_at: datetime = Field(default_factory=datetime.utcnow)
