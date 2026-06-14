@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.db.client import DatabaseClient
+from app.modules.auth.deps import require_user
 from app.modules.auth.dto import RegisterRequest, LoginRequest, TokenResponse, AuthResponse
 from app.modules.auth.service import AuthService
+from app.modules.auth.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -17,5 +19,16 @@ async def register(payload: RegisterRequest, service: AuthService = Depends(get_
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, service: AuthService = Depends(get_auth_service)):
+@limiter.limit("10/minute")
+async def login(
+    request: Request,
+    payload: LoginRequest,
+    service: AuthService = Depends(get_auth_service),
+):
     return await service.login(payload)
+
+
+@router.get("/me")
+async def get_me(user: dict = Depends(require_user)):
+    """Return the currently authenticated user from the JWT token."""
+    return user

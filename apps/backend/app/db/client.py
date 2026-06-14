@@ -21,6 +21,51 @@ class DatabaseClient:
     notifications: Optional[AsyncIOMotorCollection] = None
     audit_logs: Optional[AsyncIOMotorCollection] = None
 
+    # ── Index definitions ────────────────────────────────────────────
+    # create_index is idempotent — only creates indexes that don't exist.
+    # These run on every app startup so indexes stay in sync with code.
+
+    _INDEXES: dict[str, list[tuple[list, dict]]] = {
+        "users": [
+            ([("email", 1)], {"unique": True, "name": "uq_users_email"}),
+        ],
+        "topics": [
+            ([("user_id", 1)], {"name": "idx_topics_user_id"}),
+            ([("user_id", 1), ("created_at", -1)], {"name": "idx_topics_user_created"}),
+        ],
+        "sources": [
+            ([("user_id", 1)], {"name": "idx_sources_user_id"}),
+            ([("topic_id", 1)], {"name": "idx_sources_topic_id"}),
+            ([("file_hash", 1)], {"name": "idx_sources_file_hash"}),
+        ],
+        "document_chunks": [
+            ([("user_id", 1)], {"name": "idx_chunks_user_id"}),
+            ([("topic_id", 1)], {"name": "idx_chunks_topic_id"}),
+            ([("source_id", 1)], {"name": "idx_chunks_source_id"}),
+        ],
+        "journal_entries": [
+            ([("user_id", 1)], {"name": "idx_journals_user_id"}),
+            ([("topic_id", 1)], {"name": "idx_journals_topic_id"}),
+        ],
+        "quizzes": [
+            ([("user_id", 1)], {"name": "idx_quizzes_user_id"}),
+            ([("topic_id", 1)], {"name": "idx_quizzes_topic_id"}),
+        ],
+        "quiz_attempts": [
+            ([("quiz_id", 1)], {"name": "idx_attempts_quiz_id"}),
+            ([("user_id", 1)], {"name": "idx_attempts_user_id"}),
+        ],
+        "notifications": [
+            ([("user_id", 1)], {"name": "idx_notifications_user_id"}),
+            ([("user_id", 1), ("is_read", 1)], {"name": "idx_notifications_user_read"}),
+        ],
+        "audit_logs": [
+            ([("user_id", 1)], {"name": "idx_audit_user_id"}),
+            ([("action", 1)], {"name": "idx_audit_action"}),
+            ([("created_at", -1)], {"name": "idx_audit_created_at"}),
+        ],
+    }
+
     @classmethod
     async def connect(cls) -> None:
         """Create the Mongo client and assign collection references."""
@@ -61,6 +106,20 @@ class DatabaseClient:
         if cls._db is None:
             raise RuntimeError("DatabaseClient has not been connected. Call connect() first.")
         return cls._db
+
+    @classmethod
+    async def create_indexes(cls) -> None:
+        """Create all required indexes.
+
+        Called automatically on app startup (see lifespan in main.py).
+        Each call is idempotent — MongoDB skips indexes that already exist.
+        """
+        for coll_attr, index_defs in cls._INDEXES.items():
+            coll = getattr(cls, coll_attr)
+            if coll is None:
+                continue
+            for keys, kwargs in index_defs:
+                await coll.create_index(keys, **kwargs)
 
     @staticmethod
     def to_object_id(value: str | ObjectId) -> ObjectId:

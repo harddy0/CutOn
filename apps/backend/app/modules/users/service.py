@@ -1,3 +1,11 @@
+from datetime import datetime
+
+from bson import ObjectId
+from fastapi import HTTPException
+from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo import ReturnDocument
+
+from app.core.security import hash_password
 from app.db.client import DatabaseClient
 from app.modules.users.dto import CreateUserRequest, UpdateUserRequest
 
@@ -6,32 +14,107 @@ class UsersService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
 
+    # ------------------------------------------------------------------ helpers
+
+    @property
+    def _users_collection(self) -> AsyncIOMotorCollection:
+        coll = self._db.users
+        assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
+        return coll
+
+    @staticmethod
+    def _format_user(doc: dict) -> dict:
+        """Convert a raw MongoDB user document into the API response shape.
+        Strips password_hash and preferences from the output.
+        """
+        return {
+            "id": str(doc["_id"]),
+            "email": doc["email"],
+            "first_name": doc["first_name"],
+            "last_name": doc["last_name"],
+            "role": doc.get("role", "user"),
+            "is_active": doc.get("is_active", True),
+            "created_at": doc["created_at"],
+            "last_login": doc.get("last_login"),
+        }
+
+    @staticmethod
+    def _build_set(payload: UpdateUserRequest) -> dict:
+        """Build a $set dict from non-None fields of an update payload."""
+        update_data = payload.model_dump(exclude_none=True)
+        return update_data
+
+    # ------------------------------------------------------------------ crud
+
     async def create(self, payload: CreateUserRequest) -> dict:
         """Insert a new user document."""
-        # TODO: hash password, check for duplicates, insert into MongoDB
-        raise NotImplementedError
+        collection = self._users_collection
+
+        # Check for duplicate email
+        existing = await collection.find_one({"email": payload.email})
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail="A user with this email already exists",
+            )
+
+        doc = {
+            "email": payload.email,
+            "first_name": payload.first_name,
+            "last_name": payload.last_name,
+            "password_hash": hash_password(payload.password),
+            "role": "user",
+            "is_active": True,
+            "preferences": {"email_notifications": True},
+            "created_at": datetime.utcnow(),
+            "last_login": None,
+        }
+
+        result = await collection.insert_one(doc)
+        doc["_id"] = result.inserted_id
+        return self._format_user(doc)
 
     async def find_by_id(self, user_id: str) -> dict | None:
         """Retrieve a user by their MongoDB _id."""
-        # TODO: query users collection by _id
-        raise NotImplementedError
+        collection = self._users_collection
+        doc = await collection.find_one({"_id": ObjectId(user_id)})
+        if doc is None:
+            return None
+        return self._format_user(doc)
 
     async def find_by_email(self, email: str) -> dict | None:
-        """Retrieve a user by email."""
-        # TODO: query users collection by email
-        raise NotImplementedError
+        """Retrieve a user by email (includes password_hash — for auth)."""
+        collection = self._users_collection
+        doc = await collection.find_one({"email": email})
+        if doc is None:
+            return None
+        # Return raw doc so auth can verify password
+        return dict(doc)
 
     async def update(self, user_id: str, payload: UpdateUserRequest) -> dict | None:
         """Partially update a user document."""
-        # TODO: build $set from non-None fields, update in MongoDB
-        raise NotImplementedError
+        collection = self._users_collection
+        set_fields = self._build_set(payload)
+        if not set_fields:
+            return await self.find_by_id(user_id)
+
+        result = await collection.find_one_and_update(
+            {"_id": ObjectId(user_id)},
+            {"$set": set_fields},
+            return_document=ReturnDocument.AFTER,
+        )
+        if result is None:
+            return None
+        return self._format_user(result)
 
     async def delete(self, user_id: str) -> bool:
-        """Delete a user by _id."""
-        # TODO: delete from MongoDB, return True if deleted
-        raise NotImplementedError
+        """Delete a user by _id. Returns True if a document was deleted."""
+        collection = self._users_collection
+        result = await collection.delete_one({"_id": ObjectId(user_id)})
+        return result.deleted_count == 1
 
     async def list_all(self, skip: int = 0, limit: int = 100) -> list[dict]:
         """Return a paginated list of users."""
-        # TODO: query with skip/limit
-        raise NotImplementedError
+        collection = self._users_collection
+        cursor = collection.find().sort("created_at", -1).skip(skip).limit(limit)
+        return [self._format_user(doc) async for doc in cursor]
