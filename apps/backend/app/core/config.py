@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
     jwt_expire_minutes: int = Field(default=1440, validation_alias="JWT_EXPIRE_MINUTES")  # 24h
 
+    # CORS
+    cors_origins: str = Field(default="*", validation_alias="CORS_ORIGINS")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

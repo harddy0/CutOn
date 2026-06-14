@@ -1,11 +1,11 @@
 from datetime import datetime
 
-import bcrypt
 from bson import ObjectId
 from fastapi import HTTPException
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo import ReturnDocument
 
+from app.core.security import hash_password
 from app.db.client import DatabaseClient
 from app.modules.users.dto import CreateUserRequest, UpdateUserRequest
 
@@ -21,10 +21,6 @@ class UsersService:
         coll = self._db.users
         assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
         return coll
-
-    @staticmethod
-    def _hash_password(password: str) -> str:
-        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     @staticmethod
     def _format_user(doc: dict) -> dict:
@@ -66,7 +62,7 @@ class UsersService:
             "email": payload.email,
             "first_name": payload.first_name,
             "last_name": payload.last_name,
-            "password_hash": self._hash_password(payload.password),
+            "password_hash": hash_password(payload.password),
             "role": "user",
             "is_active": True,
             "preferences": {"email_notifications": True},

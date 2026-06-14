@@ -23,5 +23,6 @@ class AuthResponse(BaseModel):
     email: str
     first_name: str
     last_name: str
+    role: str
     access_token: str
     token_type: str = "bearer"

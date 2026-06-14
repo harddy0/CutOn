@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.db.client import DatabaseClient
-from app.modules.auth.deps import require_own_user, require_user
+from app.modules.auth.deps import require_admin, require_own_user, require_user
 from app.modules.users.dto import CreateUserRequest, UpdateUserRequest, UserResponse
 from app.modules.users.service import UsersService
 
@@ -50,6 +50,6 @@ async def list_users(
     skip: int = 0,
     limit: int = 100,
     service: UsersService = Depends(get_users_service),
-    _: dict = Depends(require_user),
+    _: dict = Depends(require_admin),
 ):
     return await service.list_all(skip, limit)

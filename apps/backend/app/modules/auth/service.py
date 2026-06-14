@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 
-import bcrypt
 import jwt
 from bson import ObjectId
 from fastapi import HTTPException
 from motor.motor_asyncio import AsyncIOMotorCollection
 
 from app.core.config import settings
+from app.core.security import hash_password, verify_password
 from app.db.client import DatabaseClient
 from app.modules.auth.dto import RegisterRequest, LoginRequest
 
@@ -24,14 +24,6 @@ class AuthService:
         return coll
 
     @staticmethod
-    def _hash_password(password: str) -> str:
-        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-    @staticmethod
-    def _verify_password(plain: str, hashed: str) -> bool:
-        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
-
-    @staticmethod
     def _create_token(user_id: str) -> str:
         payload = {
             "sub": user_id,
@@ -47,6 +39,7 @@ class AuthService:
             "email": doc["email"],
             "first_name": doc["first_name"],
             "last_name": doc["last_name"],
+            "role": doc.get("role", "user"),
             "access_token": token,
             "token_type": "bearer",
         }
@@ -65,7 +58,8 @@ class AuthService:
             "email": payload.email,
             "first_name": payload.first_name,
             "last_name": payload.last_name,
-            "password_hash": self._hash_password(payload.password),
+            "password_hash": hash_password(payload.password),
+            "role": "user",
             "is_active": True,
             "preferences": {"email_notifications": True},
             "created_at": datetime.utcnow(),
@@ -88,7 +82,7 @@ class AuthService:
         if not doc.get("is_active", True):
             raise HTTPException(status_code=403, detail="Account is deactivated")
 
-        if not self._verify_password(payload.password, doc["password_hash"]):
+        if not verify_password(payload.password, doc["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         # Update last_login
@@ -129,6 +123,7 @@ class AuthService:
             "email": doc["email"],
             "first_name": doc["first_name"],
             "last_name": doc["last_name"],
+            "role": doc.get("role", "user"),
             "is_active": doc.get("is_active", True),
             "created_at": doc["created_at"],
             "last_login": doc.get("last_login"),
