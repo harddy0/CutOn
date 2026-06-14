@@ -3,9 +3,9 @@ from pydantic import BaseModel, EmailStr
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    username: str
+    first_name: str
+    last_name: str
     password: str
-    display_name: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -21,7 +21,7 @@ class TokenResponse(BaseModel):
 class AuthResponse(BaseModel):
     id: str
     email: str
-    username: str
-    display_name: str | None = None
+    first_name: str
+    last_name: str
     access_token: str
     token_type: str = "bearer"

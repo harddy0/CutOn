@@ -14,6 +14,7 @@ from app.modules.users.router import router as users_router
 async def lifespan(app: FastAPI):
     """Opens the MongoDB connection on startup and closes it on shutdown."""
     await DatabaseClient.connect()
+    await DatabaseClient.create_indexes()
     yield
     await DatabaseClient.close()
 

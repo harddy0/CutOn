@@ -38,6 +38,8 @@ class UserDocument(BaseDocument):
     first_name: str
     last_name: str
     password_hash: str
+    role: str = "user"  # "user" | "admin"
+    is_active: bool = True
     preferences: UserPreferences = Field(default_factory=UserPreferences)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
