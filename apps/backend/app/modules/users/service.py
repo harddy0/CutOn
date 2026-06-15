@@ -7,7 +7,7 @@ from pymongo import ReturnDocument
 
 from app.core.security import hash_password
 from app.db.client import DatabaseClient
-from app.modules.users.dto import CreateUserRequest, UpdateUserRequest
+from app.modules.users.dto import CreateUserRequest, UpdateUserRequest, UserResponse
 
 
 class UsersService:
@@ -23,20 +23,20 @@ class UsersService:
         return coll
 
     @staticmethod
-    def _format_user(doc: dict) -> dict:
-        """Convert a raw MongoDB user document into the API response shape.
+    def _format_user(doc: dict) -> UserResponse:
+        """Convert a raw MongoDB user document into the API response model.
         Strips password_hash and preferences from the output.
         """
-        return {
-            "id": str(doc["_id"]),
-            "email": doc["email"],
-            "first_name": doc["first_name"],
-            "last_name": doc["last_name"],
-            "role": doc.get("role", "user"),
-            "is_active": doc.get("is_active", True),
-            "created_at": doc["created_at"],
-            "last_login": doc.get("last_login"),
-        }
+        return UserResponse(
+            id=str(doc["_id"]),
+            email=doc["email"],
+            first_name=doc["first_name"],
+            last_name=doc["last_name"],
+            role=doc.get("role", "user"),
+            is_active=doc.get("is_active", True),
+            created_at=doc["created_at"],
+            last_login=doc.get("last_login"),
+        )
 
     @staticmethod
     def _build_set(payload: UpdateUserRequest) -> dict:
@@ -46,7 +46,7 @@ class UsersService:
 
     # ------------------------------------------------------------------ crud
 
-    async def create(self, payload: CreateUserRequest) -> dict:
+    async def create(self, payload: CreateUserRequest) -> UserResponse:
         """Insert a new user document."""
         collection = self._users_collection
 
@@ -74,7 +74,7 @@ class UsersService:
         doc["_id"] = result.inserted_id
         return self._format_user(doc)
 
-    async def find_by_id(self, user_id: str) -> dict | None:
+    async def find_by_id(self, user_id: str) -> UserResponse | None:
         """Retrieve a user by their MongoDB _id."""
         collection = self._users_collection
         doc = await collection.find_one({"_id": ObjectId(user_id)})
@@ -91,7 +91,7 @@ class UsersService:
         # Return raw doc so auth can verify password
         return dict(doc)
 
-    async def update(self, user_id: str, payload: UpdateUserRequest) -> dict | None:
+    async def update(self, user_id: str, payload: UpdateUserRequest) -> UserResponse | None:
         """Partially update a user document."""
         collection = self._users_collection
         set_fields = self._build_set(payload)
@@ -113,7 +113,7 @@ class UsersService:
         result = await collection.delete_one({"_id": ObjectId(user_id)})
         return result.deleted_count == 1
 
-    async def list_all(self, skip: int = 0, limit: int = 100) -> list[dict]:
+    async def list_all(self, skip: int = 0, limit: int = 100) -> list[UserResponse]:
         """Return a paginated list of users."""
         collection = self._users_collection
         cursor = collection.find().sort("created_at", -1).skip(skip).limit(limit)
