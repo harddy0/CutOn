@@ -42,10 +42,16 @@ class DatabaseClient:
             ([("user_id", 1)], {"name": "idx_chunks_user_id"}),
             ([("topic_id", 1)], {"name": "idx_chunks_topic_id"}),
             ([("source_id", 1)], {"name": "idx_chunks_source_id"}),
+            ([("source_id", 1), ("chunk_index", 1)], {"name": "idx_chunks_source_index"}),
+            ([("source_id", 1), ("chunk_hash", 1)], {"name": "uq_chunks_source_hash", "unique": True}),
+            ([("embedding_model", 1)], {"name": "idx_chunks_embedding_model"}),
         ],
         "journal_entries": [
             ([("user_id", 1)], {"name": "idx_journals_user_id"}),
             ([("topic_id", 1)], {"name": "idx_journals_topic_id"}),
+            ([("user_id", 1), ("topic_id", 1), ("created_at", -1)], {"name": "idx_journals_user_topic_created"}),
+            ([("embedding_model", 1)], {"name": "idx_journals_embedding_model"}),
+            ([("embedding_status", 1)], {"name": "idx_journals_embedding_status"}),
         ],
         "quizzes": [
             ([("user_id", 1)], {"name": "idx_quizzes_user_id"}),

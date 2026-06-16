@@ -1,0 +1,179 @@
+from datetime import datetime
+
+from bson import ObjectId
+from fastapi import HTTPException
+from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo import ReturnDocument
+
+from app.core.config import settings
+from app.db.client import DatabaseClient
+from app.modules.journal.dto import (
+    CreateJournalEntryRequest,
+    UpdateJournalEntryRequest,
+    JournalEntryResponse,
+)
+from app.tasks.embeddings import EMBEDDINGS_QUEUE, generate_journal_embedding
+
+
+class JournalEntriesService:
+    def __init__(self, db_client: type[DatabaseClient]) -> None:
+        self._db = db_client
+
+    # ------------------------------------------------------------------ helpers
+
+    @property
+    def _journal_collection(self) -> AsyncIOMotorCollection:
+        coll = self._db.journal_entries
+        assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
+        return coll
+
+    @staticmethod
+    def _format_entry(doc: dict) -> JournalEntryResponse:
+        """Convert a raw MongoDB journal entry document into the API response model."""
+        return JournalEntryResponse(
+            id=str(doc["_id"]),
+            user_id=str(doc["user_id"]),
+            topic_id=str(doc["topic_id"]),
+            content=doc["content"],
+            embedding=doc.get("embedding", []),
+            embedding_status=doc.get("embedding_status", "PENDING"),
+            created_at=doc["created_at"],
+            updated_at=doc["updated_at"],
+        )
+
+    @staticmethod
+    def _build_set(payload: UpdateJournalEntryRequest) -> dict:
+        """Build a $set dict from non-None fields of an update payload."""
+        return payload.model_dump(exclude_none=True)
+
+    # ------------------------------------------------------------------ ownership check
+
+    async def _assert_owner(self, entry_id: str, user_id: str) -> dict:
+        """Fetch an entry and verify the user owns it. Returns the doc or raises 403/404."""
+        collection = self._journal_collection
+        doc = await collection.find_one({"_id": ObjectId(entry_id)})
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Journal entry not found")
+        if str(doc["user_id"]) != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to perform this action on this journal entry",
+            )
+        return dict(doc)
+
+    # ------------------------------------------------------------------ owner-scoped lookup
+
+    async def find_by_id_for_user(self, entry_id: str, user_id: str) -> JournalEntryResponse:
+        """Retrieve an entry, ensuring the authenticated user owns it.
+
+        Raises 404 if not found, 403 if not owned by the user.
+        """
+        doc = await self._assert_owner(entry_id, user_id)
+        return self._format_entry(doc)
+
+    # ------------------------------------------------------------------ crud
+
+    async def create(self, user_id: str, payload: CreateJournalEntryRequest) -> JournalEntryResponse:
+        """Insert a new journal entry for the authenticated user.
+
+        The entry is created with ``embedding_status = "PENDING"`` and a
+        **background Celery task** is enqueued to generate the embedding
+        vector via the Gemini Embedding API.  The API response returns
+        **202 Accepted** immediately — the client can poll the entry to
+        check when the embedding is ``COMPLETED``.
+        """
+        collection = self._journal_collection
+        now = datetime.utcnow()
+
+        doc = {
+            "user_id": ObjectId(user_id),
+            "topic_id": ObjectId(payload.topic_id),
+            "content": payload.content,
+            "embedding": [],
+            "embedding_status": "PENDING",
+            "embedding_model": settings.embedding_model,
+            "retry_count": 0,
+            "last_error": None,
+            "start_char": None,
+            "end_char": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        result = await collection.insert_one(doc)
+        entry_id = str(result.inserted_id)
+        doc["_id"] = result.inserted_id
+
+        # Enqueue background embedding task to the ``embeddings`` queue
+        generate_journal_embedding.apply_async(
+            args=[entry_id],
+            queue=EMBEDDINGS_QUEUE,
+        )
+
+        return self._format_entry(doc)
+
+    async def find_by_id(self, entry_id: str) -> JournalEntryResponse | None:
+        """Retrieve an entry by its MongoDB _id."""
+        collection = self._journal_collection
+        doc = await collection.find_one({"_id": ObjectId(entry_id)})
+        if doc is None:
+            return None
+        return self._format_entry(dict(doc))
+
+    async def update(
+        self, entry_id: str, user_id: str, payload: UpdateJournalEntryRequest
+    ) -> JournalEntryResponse:
+        """Partially update an entry, ensuring the user owns it."""
+        await self._assert_owner(entry_id, user_id)
+
+        collection = self._journal_collection
+        set_fields = self._build_set(payload)
+        if not set_fields:
+            doc = await collection.find_one({"_id": ObjectId(entry_id)})
+            assert doc is not None, "Entry existence confirmed by _assert_owner above"
+            return self._format_entry(doc)
+
+        set_fields["updated_at"] = datetime.utcnow()
+
+        result = await collection.find_one_and_update(
+            {"_id": ObjectId(entry_id)},
+            {"$set": set_fields},
+            return_document=ReturnDocument.AFTER,
+        )
+        assert result is not None, "Entry existence confirmed by _assert_owner above"
+        return self._format_entry(result)
+
+    async def delete(self, entry_id: str, user_id: str) -> None:
+        """Delete an entry, ensuring the user owns it."""
+        await self._assert_owner(entry_id, user_id)
+
+        collection = self._journal_collection
+        await collection.delete_one({"_id": ObjectId(entry_id)})
+
+    async def list_by_user(
+        self, user_id: str, skip: int = 0, limit: int = 100
+    ) -> list[JournalEntryResponse]:
+        """Return a paginated list of journal entries belonging to the authenticated user."""
+        collection = self._journal_collection
+        cursor = (
+            collection.find({"user_id": ObjectId(user_id)})
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        return [self._format_entry(doc) async for doc in cursor]
+
+    async def list_by_topic(
+        self, user_id: str, topic_id: str, skip: int = 0, limit: int = 100
+    ) -> list[JournalEntryResponse]:
+        """Return paginated entries for a specific topic, ensuring user ownership."""
+        collection = self._journal_collection
+        cursor = (
+            collection.find(
+                {"user_id": ObjectId(user_id), "topic_id": ObjectId(topic_id)}
+            )
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        return [self._format_entry(doc) async for doc in cursor]
