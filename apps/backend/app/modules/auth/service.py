@@ -8,7 +8,8 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from app.core.config import settings
 from app.core.security import hash_password, verify_password
 from app.db.client import DatabaseClient
-from app.modules.auth.dto import RegisterRequest, LoginRequest
+from app.modules.auth.dto import RegisterRequest, LoginRequest, AuthResponse, TokenResponse
+from app.modules.users.dto import UserResponse
 
 
 class AuthService:
@@ -32,21 +33,9 @@ class AuthService:
         }
         return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
-    @staticmethod
-    def _format_auth_user(doc: dict, token: str) -> dict:
-        return {
-            "id": str(doc["_id"]),
-            "email": doc["email"],
-            "first_name": doc["first_name"],
-            "last_name": doc["last_name"],
-            "role": doc.get("role", "user"),
-            "access_token": token,
-            "token_type": "bearer",
-        }
-
     # ------------------------------------------------------------------ public
 
-    async def register(self, payload: RegisterRequest) -> dict:
+    async def register(self, payload: RegisterRequest) -> AuthResponse:
         """Register a new user account and return an access token."""
         collection = self._users_collection
 
@@ -69,9 +58,16 @@ class AuthService:
         result = await collection.insert_one(doc)
         doc["_id"] = result.inserted_id
         token = self._create_token(str(result.inserted_id))
-        return self._format_auth_user(doc, token)
+        return AuthResponse(
+            id=str(result.inserted_id),
+            email=doc["email"],
+            first_name=doc["first_name"],
+            last_name=doc["last_name"],
+            role="user",
+            access_token=token,
+        )
 
-    async def login(self, payload: LoginRequest) -> dict:
+    async def login(self, payload: LoginRequest) -> TokenResponse:
         """Authenticate a user and return an access token."""
         collection = self._users_collection
 
@@ -92,12 +88,11 @@ class AuthService:
         )
 
         token = self._create_token(str(doc["_id"]))
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-        }
+        return TokenResponse(
+            access_token=token,
+        )
 
-    async def get_current_user(self, token: str) -> dict:
+    async def get_current_user(self, token: str) -> UserResponse:
         """Decode a JWT and return the current user (without password_hash)."""
         try:
             payload = jwt.decode(
@@ -118,13 +113,13 @@ class AuthService:
         if doc is None:
             raise HTTPException(status_code=401, detail="User not found")
 
-        return {
-            "id": str(doc["_id"]),
-            "email": doc["email"],
-            "first_name": doc["first_name"],
-            "last_name": doc["last_name"],
-            "role": doc.get("role", "user"),
-            "is_active": doc.get("is_active", True),
-            "created_at": doc["created_at"],
-            "last_login": doc.get("last_login"),
-        }
+        return UserResponse(
+            id=str(doc["_id"]),
+            email=doc["email"],
+            first_name=doc["first_name"],
+            last_name=doc["last_name"],
+            role=doc.get("role", "user"),
+            is_active=doc.get("is_active", True),
+            created_at=doc["created_at"],
+            last_login=doc.get("last_login"),
+        )

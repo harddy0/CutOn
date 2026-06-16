@@ -75,6 +75,15 @@ class DocumentChunkDocument(BaseDocument):
     metadata: ChunkMetadata
     text: str
     embedding: list[float]
+
+    # ── Deduplication & versioning ──────────────────────────────────
+    chunk_hash: str  # SHA-256 hex digest of text — enables idempotent re-ingestion
+    embedding_model: str  # Model/version used to generate the embedding vector
+
+    # ── Precise traceability ────────────────────────────────────────
+    start_char: Optional[int] = None  # Character offset in the source document
+    end_char: Optional[int] = None    # Exclusive character offset
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -83,6 +92,18 @@ class JournalEntryDocument(BaseDocument):
     topic_id: MongoObjectId
     content: str
     embedding: list[float]
+
+    # ── Embedding pipeline state ─────────────────────────────────────
+    # PENDING → COMPLETED | FAILED  (managed by background worker)
+    embedding_status: str = "PENDING"
+    embedding_model: str  # Model used to generate the embedding vector
+    retry_count: int = 0
+    last_error: Optional[str] = None
+
+    # ── Versioning & traceability ────────────────────────────────────
+    start_char: Optional[int] = None  # Character offset in the source (if sourced)
+    end_char: Optional[int] = None    # Exclusive character offset
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

@@ -3,6 +3,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.db.client import DatabaseClient
 from app.modules.auth.service import AuthService
+from app.modules.users.dto import UserResponse
 
 # HTTPBearer registers itself in the OpenAPI schema so Swagger UI shows
 # the "Authorize" button and sends the Bearer token on protected endpoints.
@@ -17,7 +18,7 @@ def get_auth_service() -> AuthService:
 async def require_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     auth: AuthService = Depends(get_auth_service),
-) -> dict:
+) -> UserResponse:
     """Extract and validate the JWT from the Authorization header.
 
     Returns the authenticated user dict (without password_hash).
@@ -34,13 +35,13 @@ async def require_user(
 
 async def require_own_user(
     user_id: str,
-    current_user: dict = Depends(require_user),
-) -> dict:
+    current_user: UserResponse = Depends(require_user),
+) -> UserResponse:
     """Require that the authenticated user matches the ``user_id`` path param.
 
     Ensures users can only access/update/delete their own account.
     """
-    if current_user["id"] != user_id:
+    if current_user.id != user_id:
         raise HTTPException(
             status_code=403,
             detail="You can only perform this action on your own account",
@@ -49,10 +50,10 @@ async def require_own_user(
 
 
 async def require_admin(
-    current_user: dict = Depends(require_user),
-) -> dict:
+    current_user: UserResponse = Depends(require_user),
+) -> UserResponse:
     """Require that the authenticated user has an admin role."""
-    if current_user.get("role") != "admin":
+    if current_user.role != "admin":
         raise HTTPException(
             status_code=403,
             detail="Admin access required",

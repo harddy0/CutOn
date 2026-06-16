@@ -5,6 +5,7 @@ from app.modules.auth.deps import require_user
 from app.modules.auth.dto import RegisterRequest, LoginRequest, TokenResponse, AuthResponse
 from app.modules.auth.service import AuthService
 from app.modules.auth.limiter import limiter
+from app.modules.users.dto import UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -28,7 +29,7 @@ async def login(
     return await service.login(payload)
 
 
-@router.get("/me")
-async def get_me(user: dict = Depends(require_user)):
+@router.get("/me", response_model=UserResponse)
+async def get_me(user: UserResponse = Depends(require_user)):
     """Return the currently authenticated user from the JWT token."""
     return user

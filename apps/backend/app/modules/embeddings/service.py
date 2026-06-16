@@ -1,0 +1,53 @@
+from typing import Optional
+
+from google import genai
+
+from app.core.config import settings
+
+
+class EmbeddingsService:
+    """Service that generates text embeddings via Google's Gemini Embedding API.
+
+    This service has **no public router** — it is designed to be injected into
+    other service modules (e.g. journal, document chunks) that need to embed
+    text before storing vectors.
+    """
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
+        self._api_key = api_key or settings.gemini_api_key
+        self._model = model or settings.embedding_model
+        self._client: Optional[genai.Client] = None
+
+    # ------------------------------------------------------------------
+    # Lazy client — only initialised when the first embedding is requested,
+    # so the service can be imported/instantiated without a live API key.
+    # ------------------------------------------------------------------
+
+    @property
+    def _client_instance(self) -> genai.Client:
+        if self._client is None:
+            self._client = genai.Client(api_key=self._api_key)
+        return self._client
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def embed_text(self, text: str) -> list[float]:
+        """Generate an embedding vector for a single text string.
+
+        Parameters
+        ----------
+        text:
+            The text content to embed.
+
+        Returns
+        -------
+        A list of floats representing the embedding vector (default 3072
+        dimensions for ``gemini-embedding-2-flash``).
+        """
+        result = self._client_instance.models.embed_content(
+            model=self._model,
+            contents=text,
+        )
+        return result.embeddings[0].values # type: ignore
