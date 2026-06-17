@@ -65,7 +65,7 @@ Created on the `document_chunks` collection for searching document text.
       {
         "type": "vector",
         "path": "embedding",
-        "numDimensions": 768,
+        "numDimensions": 3072,
         "similarity": "cosine"
       },
       {
@@ -94,7 +94,7 @@ Created on the `journal_entries` collection for searching journal text.
       {
         "type": "vector",
         "path": "embedding",
-        "numDimensions": 768,
+        "numDimensions": 3072,
         "similarity": "cosine"
       },
       {
@@ -112,7 +112,7 @@ Created on the `journal_entries` collection for searching journal text.
 
 ### Notes
 
-- **Dimensions**: 768 (Gemini `gemini-embedding-2-flash` output size).
+- **Dimensions**: 3072 (Gemini `gemini-embedding-2-flash` output size).
 - **Similarity**: Cosine (recommended for normalized embeddings).
 - **Filter fields**: `topic_id` and `user_id` allow pre-filtering results by
   ownership before vector search — critical for multi-tenant queries.

@@ -1,0 +1,275 @@
+import asyncio
+from datetime import datetime
+from typing import Optional
+
+from bson import ObjectId
+from bson.errors import InvalidId
+from fastapi import HTTPException
+from google import genai
+from pymongo.asynchronous.collection import AsyncCollection
+
+from app.core.config import settings
+from app.db.client import DatabaseClient
+from app.modules.embeddings.service import EmbeddingsService
+from app.modules.query.dto import QueryRequest, QueryResultItem, QueryResponse
+
+VECTOR_INDEX_CHUNKS = "vector_index_chunks"
+VECTOR_INDEX_JOURNALS = "vector_index_journals"
+
+CONTEXT_SYNTHESIS_PROMPT = """\
+You are a personal learning assistant. Answer the user's question using ONLY the context provided below.
+
+Each piece of context is tagged with a source type and reference.
+- [Doc: filename, page X] = from an uploaded PDF/document
+- [Journal: YYYY-MM-DD] = from your personal journal entry
+
+Context:
+{context}
+
+User question: {query}
+
+Instructions:
+1. Answer naturally and conversationally in English.
+2. Cite your sources using the tags shown above (e.g. [Doc: react_guide.pdf, p.14]).
+3. If the context doesn't contain enough information to answer, say so clearly.
+4. Keep your answer concise — 2-4 paragraphs maximum.
+5. Blend both document facts and journal experiences when relevant."""
+
+
+class QueryService:
+    """Executes dual concurrent ``$vectorSearch`` against both document chunks
+    and journal entries, then optionally synthesises a natural-language answer
+    via the Gemini LLM.
+
+    **Robustness note**
+    If the journal vector search returns fewer than ``top_k`` results, the
+    remaining slots are filled with the user's most recent journal entries
+    so journals are *always* represented in the context sent to the LLM.
+    """
+
+    def __init__(self, db_client: type[DatabaseClient]) -> None:
+        self._db = db_client
+        self._embedder = EmbeddingsService()
+        self._llm: Optional[genai.Client] = None
+
+    # ------------------------------------------------------------------ helpers
+
+    @property
+    def _chunks_collection(self) -> AsyncCollection:
+        coll = self._db.document_chunks
+        assert coll is not None, "Database not connected"
+        return coll
+
+    @property
+    def _journals_collection(self) -> AsyncCollection:
+        coll = self._db.journal_entries
+        assert coll is not None, "Database not connected"
+        return coll
+
+    @property
+    def _llm_client(self) -> genai.Client:
+        if self._llm is None:
+            self._llm = genai.Client(api_key=settings.gemini_api_key)
+        return self._llm
+
+    # ------------------------------------------------------------------ search
+
+    async def search(self, user_id: str, payload: QueryRequest) -> QueryResponse:
+        """Run a hybrid dual-index vector search with optional LLM synthesis.
+
+        **Flow**
+        1. Embed the user's query via the shared ``EmbeddingsService``.
+        2. Fire two ``$vectorSearch`` aggregations **concurrently**:
+           - ``vector_index_chunks`` on ``document_chunks``
+           - ``vector_index_journals`` on ``journal_entries``
+        3. Merge all results, sort descending by ``score``.
+        4. If ``synthesize=True`` (default), format results with provenance
+           tags and call Gemini to produce a natural-language answer with
+           citations.
+        """
+        # 1. Vectorize the query --------------------------------------------
+        query_vector = self._embedder.embed_text(payload.query)
+
+        # 2. Build filter — always scoped to user, optionally to a topic
+        mongo_filter: dict = {
+            "user_id": ObjectId(user_id),
+        }
+        if payload.topic_id:
+            try:
+                mongo_filter["topic_id"] = ObjectId(payload.topic_id)
+            except InvalidId:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid topic_id: '{payload.topic_id}' is not a valid ObjectId. It must be a 24-character hex string.",
+                )
+
+        top_k = max(1, min(payload.top_k or 7, 50))  # Sanity clamp
+
+        # 3. Concurrent searches --------------------------------------------
+
+        async def _search_chunks() -> list[QueryResultItem]:
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": VECTOR_INDEX_CHUNKS,
+                        "queryVector": query_vector,
+                        "path": "embedding",
+                        "numCandidates": top_k * 20,
+                        "limit": top_k,
+                        "filter": mongo_filter,
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "sources",
+                        "localField": "source_id",
+                        "foreignField": "_id",
+                        "as": "_source",
+                    }
+                },
+                {"$unwind": {"path": "$_source", "preserveNullAndEmptyArrays": True}},
+                {
+                    "$project": {
+                        "_id": 0,
+                        "text": 1,
+                        "score": {"$meta": "vectorSearchScore"},
+                        "source_id": 1,
+                        "chunk_index": 1,
+                        "original_filename": {"$ifNull": ["$_source.original_filename", "unknown"]},
+                        "page_number": {"$ifNull": ["$metadata.page_number", 1]},
+                    }
+                },
+            ]
+            cursor = await self._chunks_collection.aggregate(pipeline)
+            results: list[QueryResultItem] = []
+            async for doc in cursor:
+                results.append(
+                    QueryResultItem(
+                        source_type="document_chunk",
+                        text=doc["text"],
+                        score=round(doc["score"], 4),
+                        metadata={
+                            "source_id": str(doc["source_id"]),
+                            "chunk_index": doc["chunk_index"],
+                            "original_filename": doc["original_filename"],
+                            "page_number": doc["page_number"],
+                        },
+                    )
+                )
+            return results
+
+        async def _search_journals() -> list[QueryResultItem]:
+            # ── Primary: vector search ─────────────────────────────────
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": VECTOR_INDEX_JOURNALS,
+                        "queryVector": query_vector,
+                        "path": "embedding",
+                        "numCandidates": top_k * 20,
+                        "limit": top_k,
+                        "filter": mongo_filter,
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 1,
+                        "text": "$content",
+                        "score": {"$meta": "vectorSearchScore"},
+                        "created_at": 1,
+                    }
+                },
+            ]
+            cursor = await self._journals_collection.aggregate(pipeline)
+            seen_ids: set[str] = set()
+            results: list[QueryResultItem] = []
+            async for doc in cursor:
+                doc_id = str(doc["_id"])
+                seen_ids.add(doc_id)
+                created_at = doc.get("created_at")
+                if isinstance(created_at, datetime):
+                    created_at = created_at.isoformat()
+                else:
+                    created_at = str(created_at) if created_at else ""
+                results.append(
+                    QueryResultItem(
+                        source_type="journal_entry",
+                        text=doc["text"],
+                        score=round(doc["score"], 4),
+                        metadata={"created_at": created_at},
+                    )
+                )
+
+            # ── Fallback: pad with recent entries if short ────────────
+            if len(results) < top_k:
+                missing = top_k - len(results)
+                fallback_filter = dict(mongo_filter)
+                if seen_ids:
+                    fallback_filter["_id"] = {"$nin": list(seen_ids)}
+                cursor = (
+                    self._journals_collection.find(fallback_filter)
+                    .sort("created_at", -1)
+                    .limit(missing)
+                )
+                async for doc in cursor:
+                    created_at = doc.get("created_at")
+                    if isinstance(created_at, datetime):
+                        created_at = created_at.isoformat()
+                    else:
+                        created_at = str(created_at) if created_at else ""
+                    results.append(
+                        QueryResultItem(
+                            source_type="journal_entry",
+                            text=doc["content"],
+                            score=0.01,  # Low score — stays at bottom of merged list
+                            metadata={"created_at": created_at},
+                        )
+                    )
+
+            return results
+
+        # 4. Run both searches concurrently
+        chunk_results, journal_results = await asyncio.gather(
+            _search_chunks(), _search_journals()
+        )
+
+        # 5. Merge & sort by score descending
+        all_results = chunk_results + journal_results
+        all_results.sort(key=lambda r: r.score, reverse=True)
+
+        # 6. Optional LLM synthesis -----------------------------------------
+        answer: Optional[str] = None
+        if payload.synthesize and all_results:
+            answer = self._synthesize(payload.query, all_results)
+
+        return QueryResponse(query=payload.query, results=all_results, answer=answer)
+
+    # ------------------------------------------------------------------ synthesis
+
+    def _format_context(self, results: list[QueryResultItem]) -> str:
+        """Format search results into a tagged context block for the LLM."""
+        lines: list[str] = []
+        for i, r in enumerate(results, 1):
+            if r.source_type == "document_chunk":
+                filename = r.metadata.get("original_filename", "unknown")
+                page = r.metadata.get("page_number", "?")
+                tag = f"[Doc: {filename}, p.{page}]"
+            else:
+                date = r.metadata.get("created_at", "unknown date")
+                tag = f"[Journal: {date[:10] if len(date) > 10 else date}]"
+
+            # Truncate very long texts to stay within token budget
+            text = r.text[:2000] if len(r.text) > 2000 else r.text
+            lines.append(f"{tag}\n{text}\n")
+        return "\n".join(lines)
+
+    def _synthesize(self, query: str, results: list[QueryResultItem]) -> str:
+        """Send the search results + query to Gemini and return a cited answer."""
+        context = self._format_context(results)
+        prompt = CONTEXT_SYNTHESIS_PROMPT.format(context=context, query=query)
+
+        response = self._llm_client.models.generate_content(
+            model=settings.gemini_model,
+            contents=prompt,
+        )
+        return response.text.strip() if response.text else "I couldn't generate an answer from the retrieved context."
