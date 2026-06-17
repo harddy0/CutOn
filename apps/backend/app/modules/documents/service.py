@@ -5,7 +5,7 @@ from datetime import datetime
 
 from bson import ObjectId
 from fastapi import HTTPException, UploadFile
-from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.asynchronous.collection import AsyncCollection
 from app.core.config import settings
 from app.db.client import DatabaseClient
 from app.modules.documents.chunker import Chunk, chunk_text
@@ -28,13 +28,13 @@ class DocumentsService:
     # ------------------------------------------------------------------ helpers
 
     @property
-    def _sources_collection(self) -> AsyncIOMotorCollection:
+    def _sources_collection(self) -> AsyncCollection:
         coll = self._db.sources
         assert coll is not None, "Database not connected"
         return coll
 
     @property
-    def _chunks_collection(self) -> AsyncIOMotorCollection:
+    def _chunks_collection(self) -> AsyncCollection:
         coll = self._db.document_chunks
         assert coll is not None, "Database not connected"
         return coll

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.asynchronous.database import AsyncDatabase
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -24,7 +24,6 @@ from app.modules.documents.router import router as documents_router
 async def lifespan(app: FastAPI):
     """Opens the MongoDB connection on startup and closes it on shutdown."""
     await DatabaseClient.connect()
-    await DatabaseClient.create_indexes()
     yield
     await DatabaseClient.close()
 
@@ -69,7 +68,7 @@ app.include_router(documents_router, prefix="/api/v1")
 @app.get("/health")
 async def health_check():
     try:
-        db: AsyncIOMotorDatabase = DatabaseClient.get_db()
+        db: AsyncDatabase = DatabaseClient.get_db()
         await db.command("ping")
         db_status = "connected"
     except Exception:

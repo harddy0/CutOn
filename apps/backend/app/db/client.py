@@ -1,25 +1,27 @@
 from typing import Optional
 
 from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection, AsyncIOMotorDatabase
+from pymongo import AsyncMongoClient
+from pymongo.asynchronous.collection import AsyncCollection
+from pymongo.asynchronous.database import AsyncDatabase
 
 from app.core.config import settings
 
 
 class DatabaseClient:
-    _client: Optional[AsyncIOMotorClient] = None
-    _db: Optional[AsyncIOMotorDatabase] = None
+    _client: Optional[AsyncMongoClient] = None
+    _db: Optional[AsyncDatabase] = None
 
     # Collections — exposed like Prisma fields
-    users: Optional[AsyncIOMotorCollection] = None
-    topics: Optional[AsyncIOMotorCollection] = None
-    sources: Optional[AsyncIOMotorCollection] = None
-    document_chunks: Optional[AsyncIOMotorCollection] = None
-    journal_entries: Optional[AsyncIOMotorCollection] = None
-    quizzes: Optional[AsyncIOMotorCollection] = None
-    quiz_attempts: Optional[AsyncIOMotorCollection] = None
-    notifications: Optional[AsyncIOMotorCollection] = None
-    audit_logs: Optional[AsyncIOMotorCollection] = None
+    users: Optional[AsyncCollection] = None
+    topics: Optional[AsyncCollection] = None
+    sources: Optional[AsyncCollection] = None
+    document_chunks: Optional[AsyncCollection] = None
+    journal_entries: Optional[AsyncCollection] = None
+    quizzes: Optional[AsyncCollection] = None
+    quiz_attempts: Optional[AsyncCollection] = None
+    notifications: Optional[AsyncCollection] = None
+    audit_logs: Optional[AsyncCollection] = None
 
     # ── Index definitions ────────────────────────────────────────────
     # create_index is idempotent — only creates indexes that don't exist.
@@ -77,7 +79,7 @@ class DatabaseClient:
     @classmethod
     async def connect(cls) -> None:
         """Create the Mongo client and assign collection references."""
-        cls._client = AsyncIOMotorClient(settings.mongo_uri)
+        cls._client = AsyncMongoClient(settings.mongo_uri)
         cls._db = cls._client[settings.mongo_db_name]
 
         # Wire up collections
@@ -95,7 +97,7 @@ class DatabaseClient:
     async def close(cls) -> None:
         """Close the Mongo client connection."""
         if cls._client is not None:
-            cls._client.close()
+            await cls._client.close()
             cls._client = None
             cls._db = None
             cls.users = None
@@ -109,7 +111,7 @@ class DatabaseClient:
             cls.audit_logs = None
 
     @classmethod
-    def get_db(cls) -> AsyncIOMotorDatabase:
+    def get_db(cls) -> AsyncDatabase:
         """Return the database instance. Raises RuntimeError if not connected."""
         if cls._db is None:
             raise RuntimeError("DatabaseClient has not been connected. Call connect() first.")

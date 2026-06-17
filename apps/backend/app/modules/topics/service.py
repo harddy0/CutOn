@@ -2,7 +2,7 @@ from datetime import datetime
 
 from bson import ObjectId
 from fastapi import HTTPException
-from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.asynchronous.collection import AsyncCollection
 from pymongo import ReturnDocument
 
 from app.db.client import DatabaseClient
@@ -16,7 +16,7 @@ class TopicsService:
     # ------------------------------------------------------------------ helpers
 
     @property
-    def _topics_collection(self) -> AsyncIOMotorCollection:
+    def _topics_collection(self) -> AsyncCollection:
         coll = self._db.topics
         assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
         return coll

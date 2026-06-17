@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import jwt
 from bson import ObjectId
 from fastapi import HTTPException
-from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
 from app.core.security import hash_password, verify_password
@@ -19,7 +19,7 @@ class AuthService:
     # ------------------------------------------------------------------ helpers
 
     @property
-    def _users_collection(self) -> AsyncIOMotorCollection:
+    def _users_collection(self) -> AsyncCollection:
         coll = self._db.users
         assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
         return coll

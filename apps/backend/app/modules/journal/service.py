@@ -2,7 +2,7 @@ from datetime import datetime
 
 from bson import ObjectId
 from fastapi import HTTPException
-from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.asynchronous.collection import AsyncCollection
 from pymongo import ReturnDocument
 
 from app.core.config import settings
@@ -22,7 +22,7 @@ class JournalEntriesService:
     # ------------------------------------------------------------------ helpers
 
     @property
-    def _journal_collection(self) -> AsyncIOMotorCollection:
+    def _journal_collection(self) -> AsyncCollection:
         coll = self._db.journal_entries
         assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
         return coll
