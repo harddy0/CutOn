@@ -56,15 +56,20 @@ class TopicDocument(BaseDocument):
 class SourceDocument(BaseDocument):
     user_id: MongoObjectId
     topic_id: MongoObjectId
-    filename: str
+    original_filename: str
+    file_type: str  # pdf, txt, etc.
+    file_size: int  # Bytes
+    filename: str  # Original filename (display purposes)
     file_hash: str
     total_chunks: int
+    chunking_status: str = "PENDING"  # PENDING → PROCESSING → COMPLETED | FAILED
     ingested_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class ChunkMetadata(BaseModel):
     page_number: int
     page_range: str
+    tokens: int | None = None  # Token count for LLM context budgeting
 
 
 class DocumentChunkDocument(BaseDocument):
@@ -79,6 +84,12 @@ class DocumentChunkDocument(BaseDocument):
     # ── Deduplication & versioning ──────────────────────────────────
     chunk_hash: str  # SHA-256 hex digest of text — enables idempotent re-ingestion
     embedding_model: str  # Model/version used to generate the embedding vector
+
+    # ── Background embedding pipeline state ──────────────────────────
+    # PENDING → COMPLETED | FAILED  (managed by background worker)
+    embedding_status: str = "PENDING"
+    retry_count: int = 0
+    last_error: Optional[str] = None
 
     # ── Precise traceability ────────────────────────────────────────
     start_char: Optional[int] = None  # Character offset in the source document

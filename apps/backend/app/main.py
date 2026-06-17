@@ -15,6 +15,7 @@ from app.modules.auth.middleware import AuthRouteMiddleware
 from app.modules.users.router import router as users_router
 from app.modules.topics.router import router as topics_router
 from app.modules.journal.router import router as journal_router
+from app.modules.documents.router import router as documents_router
 
 # -- Rate limiter (keyed by IP, shared with auth router) --
 
@@ -62,6 +63,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")
 app.include_router(journal_router, prefix="/api/v1")
+app.include_router(documents_router, prefix="/api/v1")
 
 
 @app.get("/health")

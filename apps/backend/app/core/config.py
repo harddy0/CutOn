@@ -41,6 +41,22 @@ class Settings(BaseSettings):
         default=60, validation_alias="CELERY_RETRY_BACKOFF_SEC"
     )
 
+    # ── File Upload ──────────────────────────────────────────────────────
+    max_upload_size_mb: int = Field(
+        default=50, validation_alias="MAX_UPLOAD_SIZE_MB"
+    )
+    allowed_file_types: str = Field(
+        default="pdf,docx,txt", validation_alias="ALLOWED_FILE_TYPES"
+    )
+
+    # ── Text Chunking ────────────────────────────────────────────────────
+    chunk_size: int = Field(
+        default=1000, validation_alias="CHUNK_SIZE"  # Characters per chunk
+    )
+    chunk_overlap: int = Field(
+        default=200, validation_alias="CHUNK_OVERLAP"  # Overlap chars between chunks
+    )
+
     # CORS
     cors_origins: str = Field(default="*", validation_alias="CORS_ORIGINS")
 

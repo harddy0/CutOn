@@ -18,6 +18,7 @@ celery_app = Celery(
 
 celery_app.conf.task_routes = {
     "app.tasks.embeddings.generate_journal_embedding": {"queue": "embeddings"},
+    "app.tasks.documents.generate_document_chunk_embedding": {"queue": "embeddings"},
 }
 
 # ── Configuration ──────────────────────────────────────────────────────
@@ -36,5 +37,5 @@ celery_app.conf.update(
     task_acks_late=True,             # Re-deliver if worker crashes mid-task
     task_reject_on_worker_lost=True, # Reject + re-queue on abnormal exit
     # Auto-discover tasks in the app.tasks package
-    imports=["app.tasks.embeddings"],
+    imports=["app.tasks.embeddings", "app.tasks.documents"],
 )

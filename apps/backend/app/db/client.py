@@ -45,6 +45,8 @@ class DatabaseClient:
             ([("source_id", 1), ("chunk_index", 1)], {"name": "idx_chunks_source_index"}),
             ([("source_id", 1), ("chunk_hash", 1)], {"name": "uq_chunks_source_hash", "unique": True}),
             ([("embedding_model", 1)], {"name": "idx_chunks_embedding_model"}),
+            ([("embedding_status", 1)], {"name": "idx_chunks_embedding_status"}),
+            ([("source_id", 1), ("embedding_status", 1)], {"name": "idx_chunks_source_status"}),
         ],
         "journal_entries": [
             ([("user_id", 1)], {"name": "idx_journals_user_id"}),
