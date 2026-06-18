@@ -139,6 +139,7 @@ class QuizDocument(BaseDocument):
     user_id: MongoObjectId
     topic_id: MongoObjectId
     title: str
+    mode: str = "blind_spot"  # "blind_spot" | "topic_review"
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     questions: list[QuizQuestion]
 
@@ -166,6 +167,39 @@ class NotificationDocument(BaseDocument):
     message: str
     is_read: bool = False
     action_url: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class StudySessionDocument(BaseDocument):
+    user_id: MongoObjectId
+    topic_id: Optional[MongoObjectId] = None
+    title: str
+    status: str = "active"  # "active" | "ended"
+    message_count: int = 0
+    journal_count: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class StudyMessageDocument(BaseDocument):
+    session_id: MongoObjectId
+    role: str  # "user" | "assistant"
+    content: str
+    metadata: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RAGEvaluationDocument(BaseDocument):
+    """Logs every RAG interaction for quality tracking and evaluation."""
+    user_id: MongoObjectId
+    query: str
+    answer: str
+    answer_source: str  # "query" | "study_buddy"
+    retrieved_chunks: list[dict] = Field(default_factory=list)
+    latency_ms: int = 0
+    user_rating: Optional[int] = None  # 1 (up) | -1 (down) | None
+    user_feedback: Optional[str] = None
+    faithfulness_score: Optional[float] = None  # 0.0-1.0 (LLM-as-judge)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

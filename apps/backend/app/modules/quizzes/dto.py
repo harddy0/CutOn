@@ -10,11 +10,14 @@ class GenerateQuizRequest(BaseModel):
     topic_id: Optional[str] = None
     query: Optional[str] = None
     num_questions: int = 10
+    mode: str = "blind_spot"  # "blind_spot" | "topic_review"
 
     @model_validator(mode="after")
-    def _require_topic_id_or_query(self) -> "GenerateQuizRequest":
+    def _validate(self) -> "GenerateQuizRequest":
         if not self.topic_id and not self.query:
             raise ValueError("Provide either 'topic_id' or 'query'")
+        if self.mode not in ("blind_spot", "topic_review"):
+            raise ValueError("mode must be 'blind_spot' or 'topic_review'")
         return self
 
 
@@ -38,6 +41,7 @@ class QuizResponse(BaseModel):
     id: str
     topic_id: str
     title: str
+    mode: str  # "blind_spot" | "topic_review"
     generated_at: datetime
     questions: list[QuizQuestionResponse]
     blind_spot_count: int  # Number of blind-spot chunks detected
@@ -50,6 +54,7 @@ class QuizSummaryResponse(BaseModel):
     id: str
     topic_id: str
     title: str
+    mode: str  # "blind_spot" | "topic_review"
     question_count: int
     generated_at: datetime
     blind_spot_count: int

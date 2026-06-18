@@ -29,5 +29,15 @@ async def search_knowledge(
     * ``vector_index_journals`` — your personal journal entries
 
     Results are merged and sorted by cosine similarity score (descending).
+
+    **Topic scoping**
+    You can scope the search to a specific topic in one of two ways:
+
+    1. ``topic_id`` — a direct MongoDB ObjectId (explicit, fastest)
+    2. ``topic_query`` — a natural-language description like
+       "React state management" that resolves to the closest topic
+       via embedding similarity
+
+    If neither is provided, the search runs across **all** your topics.
     """
     return await service.search(current_user.id, payload)

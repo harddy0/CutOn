@@ -20,6 +20,9 @@ class DatabaseClient:
     journal_entries: Optional[AsyncCollection] = None
     quizzes: Optional[AsyncCollection] = None
     quiz_attempts: Optional[AsyncCollection] = None
+    study_sessions: Optional[AsyncCollection] = None
+    study_messages: Optional[AsyncCollection] = None
+    rag_evaluations: Optional[AsyncCollection] = None
     notifications: Optional[AsyncCollection] = None
     audit_logs: Optional[AsyncCollection] = None
 
@@ -65,6 +68,18 @@ class DatabaseClient:
             ([("quiz_id", 1)], {"name": "idx_attempts_quiz_id"}),
             ([("user_id", 1)], {"name": "idx_attempts_user_id"}),
         ],
+        "study_sessions": [
+            ([("user_id", 1), ("created_at", -1)], {"name": "idx_study_sessions_user_created"}),
+            ([("user_id", 1), ("status", 1)], {"name": "idx_study_sessions_user_status"}),
+        ],
+        "study_messages": [
+            ([("session_id", 1), ("created_at", 1)], {"name": "idx_study_messages_session_created"}),
+        ],
+        "rag_evaluations": [
+            ([("user_id", 1), ("created_at", -1)], {"name": "idx_rag_eval_user_created"}),
+            ([("user_rating", 1)], {"name": "idx_rag_eval_rating"}),
+            ([("answer_source", 1)], {"name": "idx_rag_eval_source"}),
+        ],
         "notifications": [
             ([("user_id", 1)], {"name": "idx_notifications_user_id"}),
             ([("user_id", 1), ("is_read", 1)], {"name": "idx_notifications_user_read"}),
@@ -90,6 +105,9 @@ class DatabaseClient:
         cls.journal_entries = cls._db.get_collection("journal_entries")
         cls.quizzes = cls._db.get_collection("quizzes")
         cls.quiz_attempts = cls._db.get_collection("quiz_attempts")
+        cls.study_sessions = cls._db.get_collection("study_sessions")
+        cls.study_messages = cls._db.get_collection("study_messages")
+        cls.rag_evaluations = cls._db.get_collection("rag_evaluations")
         cls.notifications = cls._db.get_collection("notifications")
         cls.audit_logs = cls._db.get_collection("audit_logs")
 
@@ -107,6 +125,9 @@ class DatabaseClient:
             cls.journal_entries = None
             cls.quizzes = None
             cls.quiz_attempts = None
+            cls.study_sessions = None
+            cls.study_messages = None
+            cls.rag_evaluations = None
             cls.notifications = None
             cls.audit_logs = None
 

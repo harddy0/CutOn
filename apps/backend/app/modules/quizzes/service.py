@@ -32,28 +32,80 @@ logger = logging.getLogger(__name__)
 # ── Pass threshold ─────────────────────────────────────────────────────
 PASS_THRESHOLD_PCT = 60  # Score >= 60% counts as passed
 
-# ── LLM prompt for quiz generation ────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════
+# BLIND-SPOT PROMPT (adaptive — changes based on data availability)
+# ═══════════════════════════════════════════════════════════════════════
 
-QUIZ_GENERATION_PROMPT = """\
-You are a learning assessment engine. Generate a {num_questions}-question multiple-choice quiz \
-that tests the user's understanding of concepts they have READ about but NOT yet written about.
+BLIND_SPOT_PROMPT = """\
+You are a learning assessment engine for a study app. Generate a {num_questions}-question \
+multiple-choice quiz based on the user's personal study materials.
 
-Below are two sets of context:
+Below is the user's personal data:
 
---- SOURCE DOCUMENT CHUNKS (the user has read these, but likely hasn't mastered them) ---
-{blind_spot_chunks}
+--- DOCUMENT CHUNKS (study materials the user has uploaded) ---
+{chunks}
 
---- JOURNAL ENTRIES (the user HAS written about these — they already know this) ---
-{journal_samples}
+--- JOURNAL ENTRIES (notes the user has written themselves) ---
+{journals}
 
 INSTRUCTIONS:
-1. Generate a quiz with approximately {num_questions} questions (a bit more or less is fine).
-2. Focus the quiz on concepts that appear in the SOURCE DOCUMENTS but are ABSENT from the journal entries.
-3. Each question must be genuinely answerable from the provided source document context.
+1. Generate approximately {num_questions} questions (a bit more or less is fine).
+2. Use the provided materials as your PRIMARY source for questions.
+3. {blind_spot_hint}
+4. **SUPPLEMENT, DON'T REFUSE** 💡
+   If the materials above are too sparse to cover {num_questions} meaningful questions,
+   supplement with your general knowledge to create a complete, useful quiz.
+   NEVER refuse to generate a quiz or say there isn't enough data.
+5. Each question must have exactly 4 options with exactly one correct answer.
+6. Assign "source_type" as "document_chunk" for all questions.
+7. For "source_reference", use a short citation like "filename.pdf, p.5" or "filename.pdf, chunk 3".
+8. Make questions challenging but fair — they should test genuine understanding.
+
+Return ONLY valid JSON in this exact structure (no markdown, no backticks):
+{{
+  "title": "A short, descriptive title for this quiz",
+  "questions": [
+    {{
+      "id": "q1",
+      "type": "multiple_choice",
+      "question": "The question text here?",
+      "options": [
+        {{"id": "a", "text": "First option"}},
+        {{"id": "b", "text": "Second option"}},
+        {{"id": "c", "text": "Third option"}},
+        {{"id": "d", "text": "Fourth option"}}
+      ],
+      "correct_answer": "a",
+      "points": 1,
+      "source_type": "document_chunk",
+      "source_reference": "filename.pdf, p.5"
+    }}
+  ]
+}}
+"""
+
+# ═══════════════════════════════════════════════════════════════════════
+# TOPIC REVIEW PROMPT (general knowledge quiz, no blind-spot analysis)
+# ═══════════════════════════════════════════════════════════════════════
+
+TOPIC_REVIEW_PROMPT = """\
+You are a learning assessment engine for a study app. Generate a {num_questions}-question \
+multiple-choice quiz that tests understanding of the following study materials:
+
+--- STUDY MATERIALS ---
+{chunks}
+
+INSTRUCTIONS:
+1. Generate approximately {num_questions} questions (a bit more or less is fine).
+2. Base your questions on the key concepts from the materials above.
+3. **SUPPLEMENT, DON'T REFUSE** 💡
+   If the materials are too sparse to cover {num_questions} meaningful questions,
+   supplement with your general knowledge to create a complete, useful quiz.
+   NEVER refuse to generate a quiz or say there isn't enough data.
 4. Each question must have exactly 4 options with exactly one correct answer.
-5. Assign "source_type" as "document_chunk" for all questions (they come from the docs).
-6. For "source_reference", use a short citation like "filename.pdf, p.5" from the chunk metadata.
-7. Make questions challenging but fair — they should expose real knowledge gaps.
+5. Assign "source_type" as "document_chunk" for all questions.
+6. For "source_reference", use a short citation like "filename.pdf, p.5" or "filename.pdf, chunk 3".
+7. Make questions challenging but fair.
 
 Return ONLY valid JSON in this exact structure (no markdown, no backticks):
 {{
@@ -126,8 +178,15 @@ def _centroid(vectors: list[list[float]]) -> list[float]:
 
 
 class QuizzesService:
-    """Generates blind-spot quizzes via vector delta analysis, and manages
-    quiz CRUD + attempt grading."""
+    """Generates quizzes in two modes:
+
+    * ``blind_spot`` (default) — Vector delta analysis between document chunks
+      and journal entries identifies knowledge gaps. The LLM focuses on those
+      gaps and supplements with general knowledge when data is sparse.
+
+    * ``topic_review`` — General comprehension quiz using all document chunks
+      directly. Supplements with general knowledge when materials are limited.
+    """
 
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
@@ -182,7 +241,7 @@ class QuizzesService:
         return self._llm
 
     # ------------------------------------------------------------------
-    # Topic ownership check (reused pattern from TopicsService)
+    # Ownership checks
     # ------------------------------------------------------------------
 
     async def _assert_topic_owner(self, topic_id: str, user_id: str) -> dict:
@@ -228,8 +287,7 @@ class QuizzesService:
         """Embed the user's query and find the closest topic by name+description.
 
         Returns the matching topic_id string.
-        Always returns the closest topic (no hard rejection threshold), similar
-        to how the query module always returns results.
+        Always returns the closest topic (no hard rejection threshold).
         """
         # 1. Fetch all user's topics
         cursor = self._topics_collection.find(
@@ -261,7 +319,7 @@ class QuizzesService:
             if best_match is None or score > best_match[0]:
                 best_match = (score, topic)
 
-        # 4. Always return the closest match (like query module — no hard threshold)
+        # 4. Always return the closest match
         assert best_match is not None  # topics list is non-empty
         score, topic = best_match
         logger.info(
@@ -391,10 +449,11 @@ class QuizzesService:
         return blind_spot_chunks, journal_samples, has_journal_data
 
     # ══════════════════════════════════════════════════════════════════
-    # LLM Quiz generation
+    # Context formatters
     # ══════════════════════════════════════════════════════════════════
 
-    def _format_blind_spot_context(self, chunks: list[dict]) -> str:
+    def _format_chunk_context(self, chunks: list[dict]) -> str:
+        """Format document chunks as tagged context block for the LLM."""
         lines: list[str] = []
         for i, c in enumerate(chunks, 1):
             lines.append(
@@ -403,12 +462,17 @@ class QuizzesService:
         return "\n".join(lines)
 
     def _format_journal_context(self, entries: list[dict]) -> str:
+        """Format journal entries as tagged context block for the LLM."""
         if not entries:
-            return "No journal entries available for this topic."
+            return "The user has not written any journal entries for this topic yet."
         lines: list[str] = []
         for e in entries:
             lines.append(f"[Journal: {e['date']}]\n{e['text']}\n")
         return "\n".join(lines)
+
+    # ══════════════════════════════════════════════════════════════════
+    # LLM call
+    # ══════════════════════════════════════════════════════════════════
 
     def _call_llm_for_quiz(
         self, prompt: str, num_questions: int
@@ -471,59 +535,11 @@ class QuizzesService:
         return quiz_data
 
     # ══════════════════════════════════════════════════════════════════
-    # Public: generate quiz
+    # Quiz response builder (shared between modes)
     # ══════════════════════════════════════════════════════════════════
 
-    async def generate(
-        self, user_id: str, payload: GenerateQuizRequest
-    ) -> QuizResponse:
-        """Run blind-spot delta analysis, call Gemini, persist quiz, return it.
-
-        Accepts either a ``topic_id`` (direct MongoDB ObjectId) or a ``query``
-        (human language, e.g. "I want a quiz on React state management").
-        If a ``query`` is provided, the closest matching topic is resolved
-        via embedding similarity.
-        """
-        num_questions = max(1, min(payload.num_questions or 10, 25))
-
-        # ── Resolve topic_id (direct or via query) ─────────────────────
-        if payload.topic_id:
-            topic_id = payload.topic_id
-        elif payload.query:
-            topic_id = await self._resolve_topic_by_query(user_id, payload.query)
-        else:
-            # Should not happen — validated by GenerateQuizRequest model
-            raise HTTPException(
-                status_code=400,
-                detail="Provide either 'topic_id' or 'query'",
-            )
-
-        topic_oid = self._resolve_oid(topic_id, "topic_id")
-        user_oid = self._resolve_oid(user_id, "user_id")
-
-        # Verify topic ownership
-        await self._assert_topic_owner(topic_id, user_id)
-
-        # Run delta analysis
-        blind_spot_chunks, journal_samples, has_journal_data = (
-            await self._run_delta_analysis(topic_oid, user_oid, num_blind_spots=num_questions * 2)
-        )
-
-        # Build prompt
-        blind_spot_count = len(blind_spot_chunks)
-        blind_spot_context = self._format_blind_spot_context(blind_spot_chunks)
-        journal_context = self._format_journal_context(journal_samples)
-        prompt = QUIZ_GENERATION_PROMPT.format(
-            num_questions=num_questions,
-            blind_spot_chunks=blind_spot_context,
-            journal_samples=journal_context,
-        )
-
-        # Call LLM
-        quiz_data = self._call_llm_for_quiz(prompt, num_questions)
-
-        # Build questions for response
-        now = datetime.utcnow()
+    def _build_questions_response(self, quiz_data: dict) -> list[QuizQuestionResponse]:
+        """Convert raw LLM quiz data into response-safe question objects."""
         questions_response = []
         for q in quiz_data.get("questions", []):
             options = [
@@ -540,11 +556,10 @@ class QuizzesService:
                     source_reference=q.get("source_reference", ""),
                 )
             )
+        return questions_response
 
-        # Persist to MongoDB (store the full structured quiz including correct answers)
-        title = quiz_data.get("title", f"Quiz — {topic_id}")
-
-        # Map questions to the schema format (with correct_answer for grading)
+    def _build_schema_questions(self, quiz_data: dict) -> list[dict]:
+        """Convert raw LLM quiz data into MongoDB schema format."""
         schema_questions = []
         for q in quiz_data.get("questions", []):
             schema_questions.append({
@@ -556,21 +571,191 @@ class QuizzesService:
                 "points": q.get("points", 1),
                 "source_type": q.get("source_type", "document_chunk"),
                 "source_reference": q.get("source_reference", ""),
-                # Placeholder — blind-spot quiz aggregates context from multiple chunks
                 "source_reference_id": ObjectId(),
             })
+        return schema_questions
+
+    # ══════════════════════════════════════════════════════════════════
+    # Blind-spot generation
+    # ══════════════════════════════════════════════════════════════════
+
+    async def _generate_blind_spot(
+        self,
+        user_id: str,
+        topic_id: str,
+        topic_oid: ObjectId,
+        user_oid: ObjectId,
+        num_questions: int,
+        payload: GenerateQuizRequest,
+    ) -> QuizResponse:
+        """Generate a blind-spot quiz via delta analysis with an adaptive prompt."""
+        # Run delta analysis
+        blind_spot_chunks, journal_samples, has_journal_data = (
+            await self._run_delta_analysis(
+                topic_oid, user_oid,
+                num_blind_spots=num_questions * 2,
+            )
+        )
+
+        blind_spot_count = len(blind_spot_chunks)
+        chunks_context = self._format_chunk_context(blind_spot_chunks)
+        journals_context = self._format_journal_context(journal_samples)
+
+        # Adaptive hint based on whether journals exist
+        if has_journal_data:
+            blind_spot_hint = (
+                "Focus especially on concepts in the DOCUMENTS that do NOT appear "
+                "in the JOURNALS — these are likely the user's knowledge gaps."
+            )
+        else:
+            blind_spot_hint = (
+                "Cover the key concepts from the materials above. "
+                "Write journal entries to unlock personalized blind-spot detection "
+                "in future quizzes."
+            )
+
+        prompt = BLIND_SPOT_PROMPT.format(
+            num_questions=num_questions,
+            chunks=chunks_context,
+            journals=journals_context,
+            blind_spot_hint=blind_spot_hint,
+        )
+
+        logger.info(
+            "Generating blind_spot quiz — topic=%s, questions=%d, has_journals=%s, chunks=%d",
+            topic_id, num_questions, has_journal_data, blind_spot_count,
+        )
+
+        # Call LLM
+        quiz_data = self._call_llm_for_quiz(prompt, num_questions)
+
+        return self._persist_quiz(
+            quiz_data=quiz_data,
+            user_id=user_id,
+            user_oid=user_oid,
+            topic_id=topic_id,
+            topic_oid=topic_oid,
+            mode="blind_spot",
+            blind_spot_count=blind_spot_count,
+            has_journal_data=has_journal_data,
+            num_questions=num_questions,
+        )
+
+    # ══════════════════════════════════════════════════════════════════
+    # Topic review generation
+    # ══════════════════════════════════════════════════════════════════
+
+    async def _generate_topic_review(
+        self,
+        user_id: str,
+        topic_id: str,
+        topic_oid: ObjectId,
+        user_oid: ObjectId,
+        num_questions: int,
+        payload: GenerateQuizRequest,
+    ) -> QuizResponse:
+        """Generate a general comprehension quiz using all document chunks directly."""
+        # 1. Fetch all chunks for this topic (no embedding filter needed)
+        chunk_cursor = self._chunks_collection.find(
+            {"user_id": user_oid, "topic_id": topic_oid},
+            {"text": 1, "source_id": 1, "chunk_index": 1},
+        )
+        chunk_docs: list[dict] = []
+        async for doc in chunk_cursor:
+            chunk_docs.append(doc)
+
+        if not chunk_docs:
+            raise HTTPException(
+                status_code=400,
+                detail="No document chunks found for this topic. Upload documents first.",
+            )
+
+        # 2. Resolve source filenames for provenance
+        source_ids = {doc["source_id"] for doc in chunk_docs}
+        source_map: dict[str, str] = {}
+        cursor = self._sources_collection.find(
+            {"_id": {"$in": list(source_ids)}},
+            {"original_filename": 1},
+        )
+        async for src in cursor:
+            source_map[str(src["_id"])] = src.get("original_filename", "unknown")
+
+        # 3. Sample chunks — prioritize diverse sources, cap at reasonable count
+        sample_size = min(len(chunk_docs), num_questions * 2)
+        sampled = random.sample(chunk_docs, sample_size) if len(chunk_docs) > sample_size else chunk_docs
+
+        # 4. Build context
+        chunks = []
+        for doc in sampled:
+            sid = str(doc["source_id"])
+            filename = source_map.get(sid, "unknown")
+            chunks.append({
+                "text": doc["text"],
+                "source_reference": f"{filename}, chunk {doc['chunk_index']}",
+            })
+
+        chunks_context = self._format_chunk_context(chunks)
+
+        prompt = TOPIC_REVIEW_PROMPT.format(
+            num_questions=num_questions,
+            chunks=chunks_context,
+        )
+
+        logger.info(
+            "Generating topic_review quiz — topic=%s, questions=%d, chunks=%d",
+            topic_id, num_questions, len(chunks),
+        )
+
+        # 5. Call LLM
+        quiz_data = self._call_llm_for_quiz(prompt, num_questions)
+
+        return self._persist_quiz(
+            quiz_data=quiz_data,
+            user_id=user_id,
+            user_oid=user_oid,
+            topic_id=topic_id,
+            topic_oid=topic_oid,
+            mode="topic_review",
+            blind_spot_count=0,
+            has_journal_data=False,
+            num_questions=num_questions,
+        )
+
+    # ══════════════════════════════════════════════════════════════════
+    # Persist & build response (shared)
+    # ══════════════════════════════════════════════════════════════════
+
+    def _persist_quiz(
+        self,
+        quiz_data: dict,
+        user_id: str,
+        user_oid: ObjectId,
+        topic_id: str,
+        topic_oid: ObjectId,
+        mode: str,
+        blind_spot_count: int,
+        has_journal_data: bool,
+        num_questions: int,
+    ) -> QuizResponse:
+        """Persist the generated quiz to MongoDB and return the API response."""
+        now = datetime.utcnow()
+        title = quiz_data.get("title", f"Quiz — {topic_id}")
+
+        questions_response = self._build_questions_response(quiz_data)
+        schema_questions = self._build_schema_questions(quiz_data)
 
         insert_doc = {
             "user_id": user_oid,
             "topic_id": topic_oid,
             "title": title,
+            "mode": mode,
             "generated_at": now,
             "blind_spot_count": blind_spot_count,
             "has_journal_data": has_journal_data,
             "questions": schema_questions,
         }
 
-        result = await self._quizzes_collection.insert_one(insert_doc)
+        result = self._quizzes_collection.insert_one(insert_doc)
         quiz_id = str(result.inserted_id)
 
         await self._audit.log(
@@ -578,18 +763,76 @@ class QuizzesService:
             "quiz.generate",
             "quiz",
             quiz_id,
-            {"topic_id": topic_id, "question_count": len(schema_questions)},
+            {
+                "topic_id": topic_id,
+                "question_count": len(schema_questions),
+                "mode": mode,
+            },
         )
 
         return QuizResponse(
             id=quiz_id,
             topic_id=topic_id,
             title=title,
+            mode=mode,
             generated_at=now,
             questions=questions_response,
             blind_spot_count=blind_spot_count,
             has_journal_data=has_journal_data,
             created_at=now,
+        )
+
+    # ══════════════════════════════════════════════════════════════════
+    # Public: generate quiz
+    # ══════════════════════════════════════════════════════════════════
+
+    async def generate(
+        self, user_id: str, payload: GenerateQuizRequest
+    ) -> QuizResponse:
+        """Generate a quiz in one of two modes.
+
+        Accepts either a ``topic_id`` (direct MongoDB ObjectId) or a ``query``
+        (human language, e.g. "I want a quiz on React state management").
+        If a ``query`` is provided, the closest matching topic is resolved
+        via embedding similarity.
+
+        Modes
+        -----
+        * ``blind_spot`` (default) — Vector delta analysis identifies knowledge
+          gaps between document chunks and journal entries. The LLM focuses on
+          those gaps and supplements with general knowledge when data is sparse.
+        * ``topic_review`` — General comprehension quiz using all document
+          chunks directly. Supplements with general knowledge when materials
+          are limited.
+        """
+        num_questions = max(1, min(payload.num_questions or 10, 25))
+
+        # ── Resolve topic_id (direct or via query) ─────────────────────
+        if payload.topic_id:
+            topic_id = payload.topic_id
+        elif payload.query:
+            topic_id = await self._resolve_topic_by_query(user_id, payload.query)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide either 'topic_id' or 'query'",
+            )
+
+        topic_oid = self._resolve_oid(topic_id, "topic_id")
+        user_oid = self._resolve_oid(user_id, "user_id")
+
+        # Verify topic ownership
+        await self._assert_topic_owner(topic_id, user_id)
+
+        # ── Branch on mode ────────────────────────────────────────────
+        if payload.mode == "topic_review":
+            return await self._generate_topic_review(
+                user_id, topic_id, topic_oid, user_oid, num_questions, payload,
+            )
+
+        # Default: blind_spot
+        return await self._generate_blind_spot(
+            user_id, topic_id, topic_oid, user_oid, num_questions, payload,
         )
 
     # ══════════════════════════════════════════════════════════════════
@@ -622,6 +865,7 @@ class QuizzesService:
                     id=str(doc["_id"]),
                     topic_id=str(doc["topic_id"]),
                     title=doc.get("title", ""),
+                    mode=doc.get("mode", "blind_spot"),
                     question_count=len(questions),
                     generated_at=doc.get("generated_at", doc["_id"].generation_time),
                     blind_spot_count=doc.get("blind_spot_count", 0),
@@ -660,6 +904,7 @@ class QuizzesService:
             id=str(doc["_id"]),
             topic_id=str(doc["topic_id"]),
             title=doc.get("title", ""),
+            mode=doc.get("mode", "blind_spot"),
             generated_at=doc.get("generated_at", datetime.utcnow()),
             questions=questions_response,
             blind_spot_count=doc.get("blind_spot_count", 0),

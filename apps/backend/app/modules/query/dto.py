@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class QueryRequest(BaseModel):
     query: str
     topic_id: Optional[str] = None
+    topic_query: Optional[str] = None
     top_k: int = 7
     synthesize: bool = True
 

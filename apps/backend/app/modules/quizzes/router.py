@@ -27,16 +27,28 @@ async def generate_quiz(
     service: QuizzesService = Depends(get_quizzes_service),
     current_user: UserResponse = Depends(require_user),
 ):
-    """Generate a blind-spot quiz.
+    """Generate a quiz in one of two modes.
 
     Accepts either a ``topic_id`` (direct MongoDB ObjectId) or a ``query``
     (natural language, e.g. "I want a quiz on React state management").
     If a ``query`` is provided, the closest topic is found via vector
     similarity search against your topic names.
 
-    Runs vector space delta analysis between the topic's document chunks
-    and journal entries, then uses Gemini to produce a targeted quiz
-    focusing on knowledge gaps.
+    **Modes**
+
+    1. ``blind_spot`` (default) — Vector delta analysis between document
+       chunks and journal entries identifies knowledge gaps. The LLM focuses
+       on those gaps and supplements with general knowledge when data is
+       sparse. Best for uncovering what you haven't mastered yet.
+
+    2. ``topic_review`` — General comprehension quiz using all document
+       chunks directly. Supplements with general knowledge when materials
+       are limited. Best for studying and reinforcing what you've learned.
+
+    **Data-first philosophy**
+    Both modes follow the same principle as the query engine: use the
+    user's own data as the primary source, **supplement don't refuse**
+    when data is limited.
     """
     return await service.generate(current_user.id, payload)
 

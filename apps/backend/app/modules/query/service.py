@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -12,6 +14,9 @@ from app.core.config import settings
 from app.db.client import DatabaseClient
 from app.modules.embeddings.service import EmbeddingsService
 from app.modules.query.dto import QueryRequest, QueryResultItem, QueryResponse
+from app.modules.rag_evaluation.service import RAGEvaluationService
+
+logger = logging.getLogger(__name__)
 
 VECTOR_INDEX_CHUNKS = "vector_index_chunks"
 VECTOR_INDEX_JOURNALS = "vector_index_journals"
@@ -71,6 +76,7 @@ class QueryService:
         self._db = db_client
         self._embedder = EmbeddingsService()
         self._llm: Optional[genai.Client] = None
+        self._rag_eval = RAGEvaluationService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
@@ -87,10 +93,73 @@ class QueryService:
         return coll
 
     @property
+    def _topics_collection(self) -> AsyncCollection:
+        coll = self._db.topics
+        assert coll is not None, "Database not connected"
+        return coll
+
+    @property
     def _llm_client(self) -> genai.Client:
         if self._llm is None:
             self._llm = genai.Client(api_key=settings.gemini_api_key)
         return self._llm
+
+    # ------------------------------------------------------------------ topic resolution
+
+    async def _resolve_topic_by_query(self, user_id: str, topic_query: str) -> str:
+        """Embed the user's natural-language topic description and find the
+        closest matching topic by name+description similarity.
+
+        Always returns the closest topic (no hard rejection threshold).
+        """
+        # 1. Fetch all user's topics
+        cursor = self._topics_collection.find(
+            {"user_id": ObjectId(user_id)},
+            {"name": 1, "description": 1},
+        )
+        topics: list[dict] = []
+        async for doc in cursor:
+            topics.append(doc)
+
+        if not topics:
+            raise HTTPException(
+                status_code=400,
+                detail="You have no topics yet. Create a topic first before scoping a query to one.",
+            )
+
+        # 2. Embed the topic query
+        query_vector = self._embedder.embed_text(topic_query)
+
+        # 3. Score each topic by cosine similarity
+        best_match: Optional[tuple[float, dict]] = None
+        for topic in topics:
+            topic_text = topic["name"]
+            if topic.get("description"):
+                topic_text += " " + topic["description"]
+            topic_vector = self._embedder.embed_text(topic_text)
+            score = self._cosine_similarity(query_vector, topic_vector)
+
+            if best_match is None or score > best_match[0]:
+                best_match = (score, topic)
+
+        # 4. Always return the closest match
+        assert best_match is not None
+        score, topic = best_match
+        logger.info(
+            "Resolved topic_query '%s' to topic '%s' (similarity: %.3f)",
+            topic_query, topic["name"], score,
+        )
+        return str(topic["_id"])
+
+    @staticmethod
+    def _cosine_similarity(a: list[float], b: list[float]) -> float:
+        """Cosine similarity between two vectors."""
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = sum(x * x for x in a) ** 0.5
+        norm_b = sum(x * x for x in b) ** 0.5
+        if norm_a * norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
 
     # ------------------------------------------------------------------ search
 
@@ -99,28 +168,36 @@ class QueryService:
 
         **Flow**
         1. Embed the user's query via the shared ``EmbeddingsService``.
-        2. Fire two ``$vectorSearch`` aggregations **concurrently**:
+        2. Resolve ``topic_query`` to a ``topic_id`` if provided (natural language).
+        3. Fire two ``$vectorSearch`` aggregations **concurrently**:
            - ``vector_index_chunks`` on ``document_chunks``
            - ``vector_index_journals`` on ``journal_entries``
-        3. Merge all results, sort descending by ``score``.
-        4. If ``synthesize=True`` (default), format results with provenance
+        4. Merge all results, sort descending by ``score``.
+        5. If ``synthesize=True`` (default), format results with provenance
            tags and call Gemini to produce a natural-language answer with
            citations.
         """
         # 1. Vectorize the query --------------------------------------------
+        _start = time.monotonic()
         query_vector = self._embedder.embed_text(payload.query)
 
         # 2. Build filter — always scoped to user, optionally to a topic
         mongo_filter: dict = {
             "user_id": ObjectId(user_id),
         }
-        if payload.topic_id:
+
+        # Resolve topic scope: topic_id (explicit) > topic_query (natural language) > all topics
+        resolved_topic_id = payload.topic_id
+        if not resolved_topic_id and payload.topic_query:
+            resolved_topic_id = await self._resolve_topic_by_query(user_id, payload.topic_query)
+
+        if resolved_topic_id:
             try:
-                mongo_filter["topic_id"] = ObjectId(payload.topic_id)
+                mongo_filter["topic_id"] = ObjectId(resolved_topic_id)
             except InvalidId:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid topic_id: '{payload.topic_id}' is not a valid ObjectId. It must be a 24-character hex string.",
+                    detail=f"Invalid topic_id: '{resolved_topic_id}' is not a valid ObjectId. It must be a 24-character hex string.",
                 )
 
         top_k = max(1, min(payload.top_k or 7, 50))  # Sanity clamp
@@ -262,7 +339,46 @@ class QueryService:
         if payload.synthesize and all_results:
             answer = self._synthesize(payload.query, all_results)
 
+        # Calculate latency
+        latency_ms = int((time.monotonic() - _start) * 1000)
+
+        # 7. Auto-log RAG evaluation (fire-and-forget) -----------------------
+        try:
+            await self._log_rag_evaluation(
+                user_id=user_id,
+                query=payload.query,
+                answer=answer or "",
+                results=all_results,
+                latency_ms=latency_ms,
+            )
+        except Exception as exc:
+            logger.warning("Failed to log RAG evaluation: %s", exc)
+
         return QueryResponse(query=payload.query, results=all_results, answer=answer)
+
+    # ------------------------------------------------------------------ RAG evaluation
+
+    async def _log_rag_evaluation(
+        self,
+        user_id: str,
+        query: str,
+        answer: str,
+        results: list[QueryResultItem],
+        latency_ms: int,
+    ) -> None:
+        """Auto-log the RAG interaction for quality tracking."""
+        chunks_for_eval = [
+            {"text": r.text, "score": r.score, "source_type": r.source_type}
+            for r in results[:5]  # Top 5 chunks
+        ]
+        await self._rag_eval.log_evaluation(
+            user_id=user_id,
+            query=query,
+            answer=answer or "",
+            answer_source="query",
+            retrieved_chunks=chunks_for_eval,
+            latency_ms=latency_ms,
+        )
 
     # ------------------------------------------------------------------ synthesis
 
