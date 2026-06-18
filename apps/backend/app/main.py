@@ -17,6 +17,9 @@ from app.modules.topics.router import router as topics_router
 from app.modules.journal.router import router as journal_router
 from app.modules.documents.router import router as documents_router
 from app.modules.query.router import router as query_router
+from app.modules.quizzes.router import router as quizzes_router
+from app.modules.audit.router import router as audit_router
+from app.modules.notifications.router import router as notifications_router
 
 # -- Rate limiter (keyed by IP, shared with auth router) --
 
@@ -65,6 +68,9 @@ app.include_router(topics_router, prefix="/api/v1")
 app.include_router(journal_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(query_router, prefix="/api/v1")
+app.include_router(quizzes_router, prefix="/api/v1")
+app.include_router(audit_router, prefix="/api/v1")
+app.include_router(notifications_router, prefix="/api/v1")
 
 
 @app.get("/health")

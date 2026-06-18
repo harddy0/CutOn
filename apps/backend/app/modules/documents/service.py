@@ -8,6 +8,7 @@ from fastapi import HTTPException, UploadFile
 from pymongo.asynchronous.collection import AsyncCollection
 from app.core.config import settings
 from app.db.client import DatabaseClient
+from app.modules.audit.service import AuditService
 from app.modules.documents.chunker import Chunk, chunk_text
 from app.modules.documents.dto import (
     ChunkingProgressResponse,
@@ -24,6 +25,7 @@ ALLOWED_TYPES = {"pdf", "docx", "txt"}
 class DocumentsService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
+        self._audit = AuditService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
@@ -246,6 +248,13 @@ class DocumentsService:
                 queue=EMBEDDINGS_QUEUE,
             )
 
+        await self._audit.log(
+            user_id,
+            "document.upload",
+            "source",
+            str(source_id),
+            {"filename": file.filename, "file_size": file_size, "total_chunks": len(chunks)},
+        )
         return self._format_source(source_doc)
 
     # ------------------------------------------------------------------ list sources
@@ -287,6 +296,7 @@ class DocumentsService:
         oid = ObjectId(source_id)
         await self._chunks_collection.delete_many({"source_id": oid})
         await self._sources_collection.delete_one({"_id": oid})
+        await self._audit.log(user_id, "document.delete", "source", source_id, {})
 
     # ------------------------------------------------------------------ list chunks
 

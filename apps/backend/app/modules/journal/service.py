@@ -7,6 +7,7 @@ from pymongo import ReturnDocument
 
 from app.core.config import settings
 from app.db.client import DatabaseClient
+from app.modules.audit.service import AuditService
 from app.modules.journal.dto import (
     CreateJournalEntryRequest,
     UpdateJournalEntryRequest,
@@ -18,6 +19,7 @@ from app.tasks.embeddings import EMBEDDINGS_QUEUE, generate_journal_embedding
 class JournalEntriesService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
+        self._audit = AuditService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
@@ -110,6 +112,13 @@ class JournalEntriesService:
             queue=EMBEDDINGS_QUEUE,
         )
 
+        await self._audit.log(
+            user_id,
+            "journal.create",
+            "journal_entry",
+            entry_id,
+            {"topic_id": payload.topic_id},
+        )
         return self._format_entry(doc)
 
     async def find_by_id(self, entry_id: str) -> JournalEntryResponse | None:
@@ -149,6 +158,7 @@ class JournalEntriesService:
 
         collection = self._journal_collection
         await collection.delete_one({"_id": ObjectId(entry_id)})
+        await self._audit.log(user_id, "journal.delete", "journal_entry", entry_id, {})
 
     async def list_by_user(
         self, user_id: str, skip: int = 0, limit: int = 100

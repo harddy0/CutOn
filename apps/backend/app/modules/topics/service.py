@@ -6,12 +6,14 @@ from pymongo.asynchronous.collection import AsyncCollection
 from pymongo import ReturnDocument
 
 from app.db.client import DatabaseClient
+from app.modules.audit.service import AuditService
 from app.modules.topics.dto import CreateTopicRequest, UpdateTopicRequest, TopicResponse
 
 
 class TopicsService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
+        self._audit = AuditService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
@@ -79,6 +81,9 @@ class TopicsService:
 
         result = await collection.insert_one(doc)
         doc["_id"] = result.inserted_id
+        await self._audit.log(
+            user_id, "topic.create", "topic", str(result.inserted_id), {"name": payload.name}
+        )
         return self._format_topic(doc)
 
     async def find_by_id(self, topic_id: str) -> TopicResponse | None:
@@ -108,6 +113,9 @@ class TopicsService:
             return_document=ReturnDocument.AFTER,
         )
         assert result is not None, "Topic existence confirmed by _assert_owner above"
+        await self._audit.log(
+            user_id, "topic.update", "topic", topic_id, {"changed_fields": list(set_fields.keys())}
+        )
         return self._format_topic(result)
 
     async def delete(self, topic_id: str, user_id: str) -> None:
@@ -116,6 +124,7 @@ class TopicsService:
 
         collection = self._topics_collection
         await collection.delete_one({"_id": ObjectId(topic_id)})
+        await self._audit.log(user_id, "topic.delete", "topic", topic_id, {})
 
     async def list_by_user(self, user_id: str, skip: int = 0, limit: int = 100) -> list[TopicResponse]:
         """Return a paginated list of topics belonging to the authenticated user."""

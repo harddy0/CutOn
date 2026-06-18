@@ -7,12 +7,14 @@ from pymongo import ReturnDocument
 
 from app.core.security import hash_password
 from app.db.client import DatabaseClient
+from app.modules.audit.service import AuditService
 from app.modules.users.dto import CreateUserRequest, UpdateUserRequest, UserResponse
 
 
 class UsersService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
+        self._audit = AuditService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
@@ -105,12 +107,17 @@ class UsersService:
         )
         if result is None:
             return None
+        await self._audit.log(
+            user_id, "user.update", "user", user_id, {"changed_fields": list(set_fields.keys())}
+        )
         return self._format_user(result)
 
     async def delete(self, user_id: str) -> bool:
         """Delete a user by _id. Returns True if a document was deleted."""
         collection = self._users_collection
         result = await collection.delete_one({"_id": ObjectId(user_id)})
+        if result.deleted_count == 1:
+            await self._audit.log(user_id, "user.delete", "user", user_id, {})
         return result.deleted_count == 1
 
     async def list_all(self, skip: int = 0, limit: int = 100) -> list[UserResponse]:
