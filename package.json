@@ -4,11 +4,14 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:frontend": "concurrently -k -n web,backend,worker -c cyan,green,yellow \"npm run dev -w web\" \"npm run start -w backend\" \"npm run start:worker -w backend\"",
+    "dev:backend": "concurrently -k -n backend,worker,web -c green,yellow,cyan \"npm run dev -w backend\" \"npm run dev:worker -w backend\" \"npm run start -w web\"",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types"
   },
   "devDependencies": {
+    "concurrently": "^10.0.3",
     "prettier": "^3.7.4",
     "turbo": "^2.9.18",
     "typescript": "5.9.2"
