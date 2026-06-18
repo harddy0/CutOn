@@ -629,7 +629,7 @@ class QuizzesService:
         # Call LLM
         quiz_data = self._call_llm_for_quiz(prompt, num_questions)
 
-        return self._persist_quiz(
+        return await self._persist_quiz(
             quiz_data=quiz_data,
             user_id=user_id,
             user_oid=user_oid,
@@ -638,7 +638,6 @@ class QuizzesService:
             mode="blind_spot",
             blind_spot_count=blind_spot_count,
             has_journal_data=has_journal_data,
-            num_questions=num_questions,
         )
 
     # ══════════════════════════════════════════════════════════════════
@@ -709,7 +708,7 @@ class QuizzesService:
         # 5. Call LLM
         quiz_data = self._call_llm_for_quiz(prompt, num_questions)
 
-        return self._persist_quiz(
+        return await self._persist_quiz(
             quiz_data=quiz_data,
             user_id=user_id,
             user_oid=user_oid,
@@ -718,14 +717,13 @@ class QuizzesService:
             mode="topic_review",
             blind_spot_count=0,
             has_journal_data=False,
-            num_questions=num_questions,
         )
 
     # ══════════════════════════════════════════════════════════════════
     # Persist & build response (shared)
     # ══════════════════════════════════════════════════════════════════
 
-    def _persist_quiz(
+    async def _persist_quiz(
         self,
         quiz_data: dict,
         user_id: str,
@@ -735,7 +733,6 @@ class QuizzesService:
         mode: str,
         blind_spot_count: int,
         has_journal_data: bool,
-        num_questions: int,
     ) -> QuizResponse:
         """Persist the generated quiz to MongoDB and return the API response."""
         now = datetime.utcnow()
@@ -755,7 +752,7 @@ class QuizzesService:
             "questions": schema_questions,
         }
 
-        result = self._quizzes_collection.insert_one(insert_doc)
+        result = await self._quizzes_collection.insert_one(insert_doc)
         quiz_id = str(result.inserted_id)
 
         await self._audit.log(

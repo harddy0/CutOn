@@ -160,12 +160,21 @@ class StudyBuddyService:
         """Create a new study session, optionally scoped to a topic."""
         now = datetime.utcnow()
 
+        # Validate topic_id if provided
+        topic_oid = None
+        if payload.topic_id:
+            try:
+                topic_oid = ObjectId(payload.topic_id)
+            except (InvalidId, TypeError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid topic_id: '{payload.topic_id}' is not a valid ObjectId. It must be a 24-character hex string.",
+                )
+
         # Auto-generate title from topic name if not provided
         title = payload.title
-        if not title and payload.topic_id:
-            topic = await self._topics_collection.find_one(
-                {"_id": ObjectId(payload.topic_id)}
-            )
+        if not title and topic_oid:
+            topic = await self._topics_collection.find_one({"_id": topic_oid})
             if topic:
                 title = f"Study: {topic['name']}"
         if not title:
@@ -173,7 +182,7 @@ class StudyBuddyService:
 
         doc = {
             "user_id": ObjectId(user_id),
-            "topic_id": ObjectId(payload.topic_id) if payload.topic_id else None,
+            "topic_id": topic_oid,
             "title": title,
             "status": "active",
             "message_count": 0,

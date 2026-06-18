@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import HTTPException
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo import ReturnDocument
@@ -45,7 +46,11 @@ class TopicsService:
     async def _assert_owner(self, topic_id: str, user_id: str) -> dict:
         """Fetch a topic and verify the user owns it. Returns the topic doc or raises 403/404."""
         collection = self._topics_collection
-        doc = await collection.find_one({"_id": ObjectId(topic_id)})
+        try:
+            oid = ObjectId(topic_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid topic_id format")
+        doc = await collection.find_one({"_id": oid})
         if doc is None:
             raise HTTPException(status_code=404, detail="Topic not found")
         if str(doc["user_id"]) != user_id:
@@ -89,7 +94,11 @@ class TopicsService:
     async def find_by_id(self, topic_id: str) -> TopicResponse | None:
         """Retrieve a topic by its MongoDB _id."""
         collection = self._topics_collection
-        doc = await collection.find_one({"_id": ObjectId(topic_id)})
+        try:
+            oid = ObjectId(topic_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid topic_id format")
+        doc = await collection.find_one({"_id": oid})
         if doc is None:
             return None
         return self._format_topic(dict(doc))
