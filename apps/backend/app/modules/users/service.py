@@ -1,23 +1,26 @@
 from datetime import datetime
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import HTTPException
-from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.asynchronous.collection import AsyncCollection
 from pymongo import ReturnDocument
 
 from app.core.security import hash_password
 from app.db.client import DatabaseClient
+from app.modules.audit.service import AuditService
 from app.modules.users.dto import CreateUserRequest, UpdateUserRequest, UserResponse
 
 
 class UsersService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
+        self._audit = AuditService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
     @property
-    def _users_collection(self) -> AsyncIOMotorCollection:
+    def _users_collection(self) -> AsyncCollection:
         coll = self._db.users
         assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
         return coll
@@ -77,7 +80,11 @@ class UsersService:
     async def find_by_id(self, user_id: str) -> UserResponse | None:
         """Retrieve a user by their MongoDB _id."""
         collection = self._users_collection
-        doc = await collection.find_one({"_id": ObjectId(user_id)})
+        try:
+            oid = ObjectId(user_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
+        doc = await collection.find_one({"_id": oid})
         if doc is None:
             return None
         return self._format_user(doc)
@@ -98,19 +105,33 @@ class UsersService:
         if not set_fields:
             return await self.find_by_id(user_id)
 
+        try:
+            oid = ObjectId(user_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
+
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(user_id)},
+            {"_id": oid},
             {"$set": set_fields},
             return_document=ReturnDocument.AFTER,
         )
         if result is None:
             return None
+        await self._audit.log(
+            user_id, "user.update", "user", user_id, {"changed_fields": list(set_fields.keys())}
+        )
         return self._format_user(result)
 
     async def delete(self, user_id: str) -> bool:
         """Delete a user by _id. Returns True if a document was deleted."""
         collection = self._users_collection
-        result = await collection.delete_one({"_id": ObjectId(user_id)})
+        try:
+            oid = ObjectId(user_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
+        result = await collection.delete_one({"_id": oid})
+        if result.deleted_count == 1:
+            await self._audit.log(user_id, "user.delete", "user", user_id, {})
         return result.deleted_count == 1
 
     async def list_all(self, skip: int = 0, limit: int = 100) -> list[UserResponse]:

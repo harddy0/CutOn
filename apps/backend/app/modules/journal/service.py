@@ -1,12 +1,14 @@
 from datetime import datetime
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import HTTPException
-from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.asynchronous.collection import AsyncCollection
 from pymongo import ReturnDocument
 
 from app.core.config import settings
 from app.db.client import DatabaseClient
+from app.modules.audit.service import AuditService
 from app.modules.journal.dto import (
     CreateJournalEntryRequest,
     UpdateJournalEntryRequest,
@@ -18,11 +20,12 @@ from app.tasks.embeddings import EMBEDDINGS_QUEUE, generate_journal_embedding
 class JournalEntriesService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
+        self._audit = AuditService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
     @property
-    def _journal_collection(self) -> AsyncIOMotorCollection:
+    def _journal_collection(self) -> AsyncCollection:
         coll = self._db.journal_entries
         assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
         return coll
@@ -51,7 +54,11 @@ class JournalEntriesService:
     async def _assert_owner(self, entry_id: str, user_id: str) -> dict:
         """Fetch an entry and verify the user owns it. Returns the doc or raises 403/404."""
         collection = self._journal_collection
-        doc = await collection.find_one({"_id": ObjectId(entry_id)})
+        try:
+            oid = ObjectId(entry_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid journal entry ID format")
+        doc = await collection.find_one({"_id": oid})
         if doc is None:
             raise HTTPException(status_code=404, detail="Journal entry not found")
         if str(doc["user_id"]) != user_id:
@@ -85,9 +92,18 @@ class JournalEntriesService:
         collection = self._journal_collection
         now = datetime.utcnow()
 
+        try:
+            topic_oid = ObjectId(payload.topic_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid topic_id: '{payload.topic_id}' is not a valid ObjectId. It must be a 24-character hex string.",
+            )
+
         doc = {
             "user_id": ObjectId(user_id),
-            "topic_id": ObjectId(payload.topic_id),
+            "topic_id": topic_oid,
+            "content": payload.content,
             "content": payload.content,
             "embedding": [],
             "embedding_status": "PENDING",
@@ -110,12 +126,23 @@ class JournalEntriesService:
             queue=EMBEDDINGS_QUEUE,
         )
 
+        await self._audit.log(
+            user_id,
+            "journal.create",
+            "journal_entry",
+            entry_id,
+            {"topic_id": payload.topic_id},
+        )
         return self._format_entry(doc)
 
     async def find_by_id(self, entry_id: str) -> JournalEntryResponse | None:
         """Retrieve an entry by its MongoDB _id."""
         collection = self._journal_collection
-        doc = await collection.find_one({"_id": ObjectId(entry_id)})
+        try:
+            oid = ObjectId(entry_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid journal entry ID format")
+        doc = await collection.find_one({"_id": oid})
         if doc is None:
             return None
         return self._format_entry(dict(doc))
@@ -149,6 +176,7 @@ class JournalEntriesService:
 
         collection = self._journal_collection
         await collection.delete_one({"_id": ObjectId(entry_id)})
+        await self._audit.log(user_id, "journal.delete", "journal_entry", entry_id, {})
 
     async def list_by_user(
         self, user_id: str, skip: int = 0, limit: int = 100
@@ -168,9 +196,13 @@ class JournalEntriesService:
     ) -> list[JournalEntryResponse]:
         """Return paginated entries for a specific topic, ensuring user ownership."""
         collection = self._journal_collection
+        try:
+            topic_oid = ObjectId(topic_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid topic_id format")
         cursor = (
             collection.find(
-                {"user_id": ObjectId(user_id), "topic_id": ObjectId(topic_id)}
+                {"user_id": ObjectId(user_id), "topic_id": topic_oid}
             )
             .sort("created_at", -1)
             .skip(skip)

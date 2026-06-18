@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.asynchronous.database import AsyncDatabase
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -16,6 +16,12 @@ from app.modules.users.router import router as users_router
 from app.modules.topics.router import router as topics_router
 from app.modules.journal.router import router as journal_router
 from app.modules.documents.router import router as documents_router
+from app.modules.query.router import router as query_router
+from app.modules.quizzes.router import router as quizzes_router
+from app.modules.study_buddy.router import router as study_buddy_router
+from app.modules.rag_evaluation.router import router as rag_evaluation_router
+from app.modules.audit.router import router as audit_router
+from app.modules.notifications.router import router as notifications_router
 
 # -- Rate limiter (keyed by IP, shared with auth router) --
 
@@ -24,7 +30,6 @@ from app.modules.documents.router import router as documents_router
 async def lifespan(app: FastAPI):
     """Opens the MongoDB connection on startup and closes it on shutdown."""
     await DatabaseClient.connect()
-    await DatabaseClient.create_indexes()
     yield
     await DatabaseClient.close()
 
@@ -64,12 +69,18 @@ app.include_router(users_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")
 app.include_router(journal_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
+app.include_router(query_router, prefix="/api/v1")
+app.include_router(quizzes_router, prefix="/api/v1")
+app.include_router(study_buddy_router, prefix="/api/v1")
+app.include_router(rag_evaluation_router, prefix="/api/v1")
+app.include_router(audit_router, prefix="/api/v1")
+app.include_router(notifications_router, prefix="/api/v1")
 
 
 @app.get("/health")
 async def health_check():
     try:
-        db: AsyncIOMotorDatabase = DatabaseClient.get_db()
+        db: AsyncDatabase = DatabaseClient.get_db()
         await db.command("ping")
         db_status = "connected"
     except Exception:

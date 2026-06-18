@@ -1,25 +1,30 @@
 from typing import Optional
 
 from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection, AsyncIOMotorDatabase
+from pymongo import AsyncMongoClient
+from pymongo.asynchronous.collection import AsyncCollection
+from pymongo.asynchronous.database import AsyncDatabase
 
 from app.core.config import settings
 
 
 class DatabaseClient:
-    _client: Optional[AsyncIOMotorClient] = None
-    _db: Optional[AsyncIOMotorDatabase] = None
+    _client: Optional[AsyncMongoClient] = None
+    _db: Optional[AsyncDatabase] = None
 
     # Collections — exposed like Prisma fields
-    users: Optional[AsyncIOMotorCollection] = None
-    topics: Optional[AsyncIOMotorCollection] = None
-    sources: Optional[AsyncIOMotorCollection] = None
-    document_chunks: Optional[AsyncIOMotorCollection] = None
-    journal_entries: Optional[AsyncIOMotorCollection] = None
-    quizzes: Optional[AsyncIOMotorCollection] = None
-    quiz_attempts: Optional[AsyncIOMotorCollection] = None
-    notifications: Optional[AsyncIOMotorCollection] = None
-    audit_logs: Optional[AsyncIOMotorCollection] = None
+    users: Optional[AsyncCollection] = None
+    topics: Optional[AsyncCollection] = None
+    sources: Optional[AsyncCollection] = None
+    document_chunks: Optional[AsyncCollection] = None
+    journal_entries: Optional[AsyncCollection] = None
+    quizzes: Optional[AsyncCollection] = None
+    quiz_attempts: Optional[AsyncCollection] = None
+    study_sessions: Optional[AsyncCollection] = None
+    study_messages: Optional[AsyncCollection] = None
+    rag_evaluations: Optional[AsyncCollection] = None
+    notifications: Optional[AsyncCollection] = None
+    audit_logs: Optional[AsyncCollection] = None
 
     # ── Index definitions ────────────────────────────────────────────
     # create_index is idempotent — only creates indexes that don't exist.
@@ -63,6 +68,18 @@ class DatabaseClient:
             ([("quiz_id", 1)], {"name": "idx_attempts_quiz_id"}),
             ([("user_id", 1)], {"name": "idx_attempts_user_id"}),
         ],
+        "study_sessions": [
+            ([("user_id", 1), ("created_at", -1)], {"name": "idx_study_sessions_user_created"}),
+            ([("user_id", 1), ("status", 1)], {"name": "idx_study_sessions_user_status"}),
+        ],
+        "study_messages": [
+            ([("session_id", 1), ("created_at", 1)], {"name": "idx_study_messages_session_created"}),
+        ],
+        "rag_evaluations": [
+            ([("user_id", 1), ("created_at", -1)], {"name": "idx_rag_eval_user_created"}),
+            ([("user_rating", 1)], {"name": "idx_rag_eval_rating"}),
+            ([("answer_source", 1)], {"name": "idx_rag_eval_source"}),
+        ],
         "notifications": [
             ([("user_id", 1)], {"name": "idx_notifications_user_id"}),
             ([("user_id", 1), ("is_read", 1)], {"name": "idx_notifications_user_read"}),
@@ -77,7 +94,7 @@ class DatabaseClient:
     @classmethod
     async def connect(cls) -> None:
         """Create the Mongo client and assign collection references."""
-        cls._client = AsyncIOMotorClient(settings.mongo_uri)
+        cls._client = AsyncMongoClient(settings.mongo_uri)
         cls._db = cls._client[settings.mongo_db_name]
 
         # Wire up collections
@@ -88,6 +105,9 @@ class DatabaseClient:
         cls.journal_entries = cls._db.get_collection("journal_entries")
         cls.quizzes = cls._db.get_collection("quizzes")
         cls.quiz_attempts = cls._db.get_collection("quiz_attempts")
+        cls.study_sessions = cls._db.get_collection("study_sessions")
+        cls.study_messages = cls._db.get_collection("study_messages")
+        cls.rag_evaluations = cls._db.get_collection("rag_evaluations")
         cls.notifications = cls._db.get_collection("notifications")
         cls.audit_logs = cls._db.get_collection("audit_logs")
 
@@ -95,7 +115,7 @@ class DatabaseClient:
     async def close(cls) -> None:
         """Close the Mongo client connection."""
         if cls._client is not None:
-            cls._client.close()
+            await cls._client.close()
             cls._client = None
             cls._db = None
             cls.users = None
@@ -105,11 +125,14 @@ class DatabaseClient:
             cls.journal_entries = None
             cls.quizzes = None
             cls.quiz_attempts = None
+            cls.study_sessions = None
+            cls.study_messages = None
+            cls.rag_evaluations = None
             cls.notifications = None
             cls.audit_logs = None
 
     @classmethod
-    def get_db(cls) -> AsyncIOMotorDatabase:
+    def get_db(cls) -> AsyncDatabase:
         """Return the database instance. Raises RuntimeError if not connected."""
         if cls._db is None:
             raise RuntimeError("DatabaseClient has not been connected. Call connect() first.")

@@ -3,11 +3,12 @@ from datetime import datetime, timedelta
 import jwt
 from bson import ObjectId
 from fastapi import HTTPException
-from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
 from app.core.security import hash_password, verify_password
 from app.db.client import DatabaseClient
+from app.modules.audit.service import AuditService
 from app.modules.auth.dto import RegisterRequest, LoginRequest, AuthResponse, TokenResponse
 from app.modules.users.dto import UserResponse
 
@@ -15,11 +16,12 @@ from app.modules.users.dto import UserResponse
 class AuthService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
+        self._audit = AuditService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
     @property
-    def _users_collection(self) -> AsyncIOMotorCollection:
+    def _users_collection(self) -> AsyncCollection:
         coll = self._db.users
         assert coll is not None, "Database not connected — call DatabaseClient.connect() first"
         return coll
@@ -57,6 +59,13 @@ class AuthService:
 
         result = await collection.insert_one(doc)
         doc["_id"] = result.inserted_id
+        await self._audit.log(
+            str(result.inserted_id),
+            "auth.register",
+            "user",
+            str(result.inserted_id),
+            {"email": payload.email},
+        )
         token = self._create_token(str(result.inserted_id))
         return AuthResponse(
             id=str(result.inserted_id),
@@ -87,6 +96,13 @@ class AuthService:
             {"$set": {"last_login": datetime.utcnow()}},
         )
 
+        await self._audit.log(
+            str(doc["_id"]),
+            "auth.login",
+            "user",
+            str(doc["_id"]),
+            {"email": payload.email},
+        )
         token = self._create_token(str(doc["_id"]))
         return TokenResponse(
             access_token=token,

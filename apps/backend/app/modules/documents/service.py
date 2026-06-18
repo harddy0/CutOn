@@ -4,10 +4,12 @@ import tempfile
 from datetime import datetime
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import HTTPException, UploadFile
-from motor.motor_asyncio import AsyncIOMotorCollection
+from pymongo.asynchronous.collection import AsyncCollection
 from app.core.config import settings
 from app.db.client import DatabaseClient
+from app.modules.audit.service import AuditService
 from app.modules.documents.chunker import Chunk, chunk_text
 from app.modules.documents.dto import (
     ChunkingProgressResponse,
@@ -24,17 +26,18 @@ ALLOWED_TYPES = {"pdf", "docx", "txt"}
 class DocumentsService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
+        self._audit = AuditService(db_client)
 
     # ------------------------------------------------------------------ helpers
 
     @property
-    def _sources_collection(self) -> AsyncIOMotorCollection:
+    def _sources_collection(self) -> AsyncCollection:
         coll = self._db.sources
         assert coll is not None, "Database not connected"
         return coll
 
     @property
-    def _chunks_collection(self) -> AsyncIOMotorCollection:
+    def _chunks_collection(self) -> AsyncCollection:
         coll = self._db.document_chunks
         assert coll is not None, "Database not connected"
         return coll
@@ -93,7 +96,11 @@ class DocumentsService:
 
     async def _assert_source_owner(self, source_id: str, user_id: str) -> dict:
         coll = self._sources_collection
-        doc = await coll.find_one({"_id": ObjectId(source_id)})
+        try:
+            oid = ObjectId(source_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid source_id format")
+        doc = await coll.find_one({"_id": oid})
         if doc is None:
             raise HTTPException(status_code=404, detail="Source document not found")
         if str(doc["user_id"]) != user_id:
@@ -123,6 +130,15 @@ class DocumentsService:
         7. Enqueue one Celery task per chunk for embedding
         8. Return SourceResponse (202)
         """
+        # 0. Validate topic_id
+        try:
+            topic_oid = ObjectId(topic_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid topic_id: '{topic_id}' is not a valid ObjectId. It must be a 24-character hex string.",
+            )
+
         # 1. Basic validation
         file_type = self._detect_file_type(file.filename or "unknown")
         file_size = 0
@@ -152,7 +168,7 @@ class DocumentsService:
 
             # 4. Check for duplicate (same user, same hash, same topic)
             existing = await self._sources_collection.find_one(
-                {"user_id": ObjectId(user_id), "topic_id": ObjectId(topic_id), "file_hash": file_hash}
+                {"user_id": ObjectId(user_id), "topic_id": topic_oid, "file_hash": file_hash}
             )
             if existing:
                 os.unlink(tmp_path)
@@ -185,7 +201,7 @@ class DocumentsService:
             now = datetime.utcnow()
             source_doc = {
                 "user_id": ObjectId(user_id),
-                "topic_id": ObjectId(topic_id),
+                "topic_id": topic_oid,
                 "original_filename": file.filename or "unknown",
                 "file_type": file_type,
                 "file_size": file_size,
@@ -204,7 +220,7 @@ class DocumentsService:
             for i, chunk in enumerate(chunks):
                 chunk_docs.append({
                     "user_id": ObjectId(user_id),
-                    "topic_id": ObjectId(topic_id),
+                    "topic_id": topic_oid,
                     "source_id": source_id,
                     "chunk_index": i,
                     "metadata": {
@@ -246,6 +262,13 @@ class DocumentsService:
                 queue=EMBEDDINGS_QUEUE,
             )
 
+        await self._audit.log(
+            user_id,
+            "document.upload",
+            "source",
+            str(source_id),
+            {"filename": file.filename, "file_size": file_size, "total_chunks": len(chunks)},
+        )
         return self._format_source(source_doc)
 
     # ------------------------------------------------------------------ list sources
@@ -266,8 +289,12 @@ class DocumentsService:
         self, user_id: str, topic_id: str, skip: int = 0, limit: int = 100
     ) -> list[SourceResponse]:
         coll = self._sources_collection
+        try:
+            topic_oid = ObjectId(topic_id)
+        except (InvalidId, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid topic_id format")
         cursor = (
-            coll.find({"user_id": ObjectId(user_id), "topic_id": ObjectId(topic_id)})
+            coll.find({"user_id": ObjectId(user_id), "topic_id": topic_oid})
             .sort("ingested_at", -1)
             .skip(skip)
             .limit(limit)
@@ -287,6 +314,7 @@ class DocumentsService:
         oid = ObjectId(source_id)
         await self._chunks_collection.delete_many({"source_id": oid})
         await self._sources_collection.delete_one({"_id": oid})
+        await self._audit.log(user_id, "document.delete", "source", source_id, {})
 
     # ------------------------------------------------------------------ list chunks
 

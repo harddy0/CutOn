@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from bson import ObjectId
 from pymongo import MongoClient
@@ -175,3 +176,24 @@ def _update_source_status_if_done(
             total,
             failed_count,
         )
+
+        # ── Notify user when all chunks are successfully embedded ────
+        if new_status == "COMPLETED":
+            db = chunks_coll.database
+            user_id = source.get("user_id")
+            filename = source.get("original_filename", "Unknown file")
+            notifications_coll = db["notifications"]
+            notifications_coll.insert_one({
+                "user_id": user_id,
+                "type": "document_ready",
+                "title": "Document processed",
+                "message": f"\u201c{filename}\u201d has been fully ingested and is ready for queries and quizzes.",
+                "is_read": False,
+                "action_url": None,
+                "created_at": datetime.utcnow(),
+            })
+            logger.info(
+                "Notification created for user %s — document '%s' ready",
+                str(user_id),
+                filename,
+            )

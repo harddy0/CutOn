@@ -6,6 +6,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     project_name: str = Field(default="CutOn Backend", validation_alias="PROJECT_NAME")
+    # ── MongoDB Connection ────────────────────────────────────────────
+    # Supports both:
+    #   - Local: mongodb://localhost:27017
+    #   - MongoDB Atlas (cloud): mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/<db>?retryWrites=true&w=majority
+    # Set MONGO_URI in your .env file to switch between local and cloud.
     mongo_uri: str = Field(default="mongodb://localhost:27017", validation_alias="MONGO_URI")
     mongo_db_name: str = Field(default="cuton_db", validation_alias="MONGO_DB_NAME")
 
