@@ -1,50 +1,123 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #1A1A1A;
+  --color-ink-muted: #5C6B6B;
+  --color-canvas: #F4F9F6;
+  --color-surface: #FFFFFF;
+  --color-card: #FFFFFF;
+  --color-card-hover: #F0F7F3;
+  --color-border: #1A1A1A;
+  --color-border-subtle: #D4E2DE;
+  --color-green-start: #E2F5ED;
+  --color-green-end: #D2EFE2;
+  --color-green-accent: #3BCB8A;
+  --color-blue-start: #E0ECF8;
+  --color-blue-end: #C8DFF7;
+  --color-blue-accent: #6B9FD4;
+  --color-purple-start: #F0E8F8;
+  --color-purple-end: #E4D8F2;
+  --color-purple-accent: #A07CB8;
+
+  --shadow-hard: 4px 4px 0px 0px #1A1A1A;
+  --shadow-hard-hover: 2px 2px 0px 0px #1A1A1A;
+  --shadow-hard-active: 1px 1px 0px 0px #1A1A1A;
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+  }
+
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  body {
+    color: #1A1A1A;
+    background: #F4F9F6;
+    font-family: var(--font-geist-sans), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  ::selection {
+    background: rgba(59, 203, 138, 0.2);
+    color: #1A1A1A;
   }
 }
 
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+/* ── Gradient drift (slow pan) ── */
+@keyframes gradient-drift {
+  0%   { background-position: 0% 0%; }
+  25%  { background-position: 100% 0%; }
+  50%  { background-position: 100% 100%; }
+  75%  { background-position: 0% 100%; }
+  100% { background-position: 0% 0%; }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
+.animate-gradient-slow {
+  animation: gradient-drift 30s ease-in-out infinite;
+  background-size: 200% 200%;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+/* ── Float (gentle bob) ── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-8px); }
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+.animate-float {
+  animation: float 4s ease-in-out infinite;
 }
 
-.imgDark {
+.animate-float-delayed {
+  animation: float 4s ease-in-out 1s infinite;
+}
+
+.animate-float-slow {
+  animation: float 6s ease-in-out 0.5s infinite;
+}
+
+/* ── Fade-in slide-up ── */
+@keyframes fade-up {
+  0%   { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.6s ease-out both;
+}
+
+.animate-fade-up-1 { animation: fade-up 0.6s ease-out 0.1s both; }
+.animate-fade-up-2 { animation: fade-up 0.6s ease-out 0.2s both; }
+.animate-fade-up-3 { animation: fade-up 0.6s ease-out 0.3s both; }
+.animate-fade-up-4 { animation: fade-up 0.6s ease-out 0.4s both; }
+
+/* ── Pulse glow ── */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 0.8; transform: scale(1.05); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
+
+/* ── Hide scrollbar (used in dashboard nav) ── */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
   display: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
-
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
 }
