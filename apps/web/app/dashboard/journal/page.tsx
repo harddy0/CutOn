@@ -9,7 +9,7 @@ import {
   deleteJournalEntry,
   ApiError,
 } from "@/lib/api";
-import type { TopicResponse, JournalEntryResponse } from "@/lib/api";
+import type { TopicResponse, JournalEntryResponse, PaginatedResponse } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,6 +97,16 @@ export default function JournalPage() {
   // ── Filter ──
   const [selectedTopicId, setSelectedTopicId] = useState<string | "all">("all");
 
+  // ── Pagination ──
+  const [skip, setSkip] = useState(0);
+  const limit = 100;
+  const [total, setTotal] = useState(0);
+
+  // Reset pagination when topic filter changes
+  useEffect(() => {
+    setSkip(0);
+  }, [selectedTopicId]);
+
   // ── Create ──
   const [showCreate, setShowCreate] = useState(false);
   const [newTopicId, setNewTopicId] = useState("");
@@ -124,20 +134,39 @@ export default function JournalPage() {
     try {
       const [topicData, entryData] = await Promise.all([
         listTopics(),
-        listJournalEntries(selectedTopicId !== "all" ? { topic_id: selectedTopicId } : undefined),
+        listJournalEntries({
+          ...(selectedTopicId !== "all" ? { topic_id: selectedTopicId } : {}),
+          skip,
+          limit,
+        }),
       ]);
-      setTopics(topicData);
-      setEntries(entryData);
+      setTopics(topicData.items);
+      setEntries(entryData.items);
+      setTotal(entryData.total);
     } catch (err: unknown) {
       setError(extractErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [selectedTopicId]);
+  }, [selectedTopicId, skip, limit]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ── Pagination handlers ──
+  const totalPages = Math.ceil(total / limit);
+  const currentPage = Math.floor(skip / limit) + 1;
+  const hasPrev = skip > 0;
+  const hasNext = skip + limit < total;
+
+  const goNext = useCallback(() => {
+    if (hasNext) setSkip((s) => s + limit);
+  }, [hasNext, limit]);
+
+  const goPrev = useCallback(() => {
+    if (hasPrev) setSkip((s) => Math.max(0, s - limit));
+  }, [hasPrev, limit]);
 
   // ------------------------------------------------------------------
   // Create
@@ -505,6 +534,34 @@ export default function JournalPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── Pagination ── */}
+      {!loading && total > limit && (
+        <div className="mt-6 flex items-center justify-between gap-3 border-t-2 border-border-subtle pt-4">
+          <span className="text-[11px] font-mono font-bold text-ink-muted/50">
+            {total} entr{total !== 1 ? "ies" : "y"} total
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-ink-muted/50">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={goPrev}
+              disabled={!hasPrev}
+              className="h-8 px-3 rounded-[4px] border-2 border-ink text-xs font-mono font-bold shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] transition-all disabled:opacity-30 disabled:pointer-events-none"
+            >
+              ← Prev
+            </button>
+            <button
+              onClick={goNext}
+              disabled={!hasNext}
+              className="h-8 px-3 rounded-[4px] border-2 border-ink bg-ink text-white text-xs font-mono font-bold shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] transition-all disabled:opacity-30 disabled:pointer-events-none"
+            >
+              Next →
+            </button>
+          </div>
         </div>
       )}
     </div>

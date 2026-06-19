@@ -8,7 +8,7 @@ import {
   deleteTopic,
   ApiError,
 } from "@/lib/api";
-import type { TopicResponse } from "@/lib/api";
+import type { TopicResponse, PaginatedResponse } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,6 +40,11 @@ export default function TopicsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Pagination ──
+  const [skip, setSkip] = useState(0);
+  const limit = 100;
+  const [total, setTotal] = useState(0);
+
   // ── Create form state ──
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -63,18 +68,33 @@ export default function TopicsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listTopics();
-      setTopics(data);
+      const res = await listTopics({ skip, limit });
+      setTopics(res.items);
+      setTotal(res.total);
     } catch (err: unknown) {
       setError(extractErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [skip, limit]);
 
   useEffect(() => {
     fetchTopics();
   }, [fetchTopics]);
+
+  // ── Pagination handlers ──
+  const totalPages = Math.ceil(total / limit);
+  const currentPage = Math.floor(skip / limit) + 1;
+  const hasPrev = skip > 0;
+  const hasNext = skip + limit < total;
+
+  const goNext = useCallback(() => {
+    if (hasNext) setSkip((s) => s + limit);
+  }, [hasNext, limit]);
+
+  const goPrev = useCallback(() => {
+    if (hasPrev) setSkip((s) => Math.max(0, s - limit));
+  }, [hasPrev, limit]);
 
   // ------------------------------------------------------------------
   // Create
@@ -355,6 +375,34 @@ export default function TopicsPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── Pagination ── */}
+      {!loading && total > limit && (
+        <div className="mt-6 flex items-center justify-between gap-3 border-t-2 border-border-subtle pt-4">
+          <span className="text-[11px] font-mono font-bold text-ink-muted/50">
+            {total} topic{total !== 1 ? "s" : ""} total
+          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-ink-muted/50">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={goPrev}
+              disabled={!hasPrev}
+              className="h-8 px-3 rounded-[4px] border-2 border-ink text-xs font-mono font-bold shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] transition-all disabled:opacity-30 disabled:pointer-events-none"
+            >
+              ← Prev
+            </button>
+            <button
+              onClick={goNext}
+              disabled={!hasNext}
+              className="h-8 px-3 rounded-[4px] border-2 border-ink bg-ink text-white text-xs font-mono font-bold shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] transition-all disabled:opacity-30 disabled:pointer-events-none"
+            >
+              Next →
+            </button>
+          </div>
         </div>
       )}
     </div>

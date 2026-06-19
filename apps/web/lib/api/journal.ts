@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type { JournalEntryResponse, CreateJournalEntryRequest, UpdateJournalEntryRequest } from "./dto/journal";
+import type { PaginatedResponse } from "./dto";
 
 // ---------------------------------------------------------------------------
 // List journal entries
@@ -11,8 +12,8 @@ export interface ListJournalEntriesParams {
   limit?: number;
 }
 
-export async function listJournalEntries(params?: ListJournalEntriesParams): Promise<JournalEntryResponse[]> {
-  return api.get<JournalEntryResponse[]>("/api/v1/journal-entries/", {
+export async function listJournalEntries(params?: ListJournalEntriesParams): Promise<PaginatedResponse<JournalEntryResponse>> {
+  return api.get<PaginatedResponse<JournalEntryResponse>>("/api/v1/journal-entries/", {
     auth: true,
     params: params as Record<string, string | number | boolean | null | undefined>,
   });

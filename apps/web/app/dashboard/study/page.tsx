@@ -59,6 +59,16 @@ export default function StudyPage() {
   const [sessions, setSessions] = useState<StudySessionResponse[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
 
+  // ── Session pagination (client-side) ──
+  const [sessionSkip, setSessionSkip] = useState(0);
+  const sessionLimit = 10;
+  const sessionTotal = sessions.length;
+  const sessionTotalPages = Math.max(1, Math.ceil(sessionTotal / sessionLimit));
+  const sessionCurrentPage = Math.floor(sessionSkip / sessionLimit) + 1;
+  const sessionHasPrev = sessionSkip > 0;
+  const sessionHasNext = sessionSkip + sessionLimit < sessionTotal;
+  const paginatedSessions = sessions.slice(sessionSkip, sessionSkip + sessionLimit);
+
   // ── Active session ──
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<StudyMessageResponse[]>([]);
@@ -105,6 +115,11 @@ export default function StudyPage() {
     fetchSessions();
   }, [fetchSessions]);
 
+  // Reset session pagination when sessions list changes (e.g. after create/delete)
+  useEffect(() => {
+    setSessionSkip(0);
+  }, [sessions.length]);
+
   // ------------------------------------------------------------------
   // Load session messages
   // ------------------------------------------------------------------
@@ -134,6 +149,7 @@ export default function StudyPage() {
     try {
       const session = await createStudySession({ title: "New Study Session" });
       setSessions((prev) => [session, ...prev]);
+      setSessionSkip(0);
       await loadSession(session.id);
     } catch (err: unknown) {
       setError(extractErrorMessage(err));
@@ -303,7 +319,7 @@ export default function StudyPage() {
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto scrollbar-hide">
-                {sessions.map((session) => {
+                {paginatedSessions.map((session) => {
                   const isActive = activeSessionId === session.id;
                   return (
                     <div
@@ -352,6 +368,33 @@ export default function StudyPage() {
                   );
                 })}
               </div>
+              {/* ── Mobile pagination ── */}
+              {sessionTotal > sessionLimit && (
+                <div className="border-t-2 border-ink px-2 py-1.5 flex items-center justify-between bg-canvas">
+                  <span className="text-[9px] font-mono text-ink-muted/50">
+                    {sessionTotal} session{sessionTotal !== 1 ? "s" : ""}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] font-mono text-ink-muted/50 mr-1">
+                      {sessionCurrentPage}/{sessionTotalPages}
+                    </span>
+                    <button
+                      onClick={() => setSessionSkip((s) => Math.max(0, s - sessionLimit))}
+                      disabled={!sessionHasPrev}
+                      className="w-5 h-5 flex items-center justify-center rounded-[2px] border border-border-subtle hover:border-ink hover:bg-card-hover transition-all text-[9px] font-mono font-bold disabled:opacity-30 disabled:pointer-events-none"
+                    >
+                      ←
+                    </button>
+                    <button
+                      onClick={() => setSessionSkip((s) => s + sessionLimit)}
+                      disabled={!sessionHasNext}
+                      className="w-5 h-5 flex items-center justify-center rounded-[2px] border border-border-subtle hover:border-ink hover:bg-card-hover transition-all text-[9px] font-mono font-bold disabled:opacity-30 disabled:pointer-events-none"
+                    >
+                      →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -377,7 +420,7 @@ export default function StudyPage() {
               </div>
             ) : (
               <div className="py-1">
-                {sessions.map((session) => {
+                {paginatedSessions.map((session) => {
                   const isActive = activeSessionId === session.id;
                   return (
                     <div
@@ -428,6 +471,33 @@ export default function StudyPage() {
                 })}
               </div>
             )}
+            {/* ── Desktop pagination ── */}
+            {sessionTotal > sessionLimit && (
+              <div className="border-t-2 border-ink px-2 py-1.5 flex items-center justify-between bg-canvas shrink-0">
+                <span className="text-[9px] font-mono text-ink-muted/50">
+                  {sessionTotal}
+                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] font-mono text-ink-muted/50 mr-1">
+                    {sessionCurrentPage}/{sessionTotalPages}
+                  </span>
+                  <button
+                    onClick={() => setSessionSkip((s) => Math.max(0, s - sessionLimit))}
+                    disabled={!sessionHasPrev}
+                    className="w-5 h-5 flex items-center justify-center rounded-[2px] border border-border-subtle hover:border-ink hover:bg-card-hover transition-all text-[9px] font-mono font-bold disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    ←
+                  </button>
+                  <button
+                    onClick={() => setSessionSkip((s) => s + sessionLimit)}
+                    disabled={!sessionHasNext}
+                    className="w-5 h-5 flex items-center justify-center rounded-[2px] border border-border-subtle hover:border-ink hover:bg-card-hover transition-all text-[9px] font-mono font-bold disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -461,7 +531,7 @@ export default function StudyPage() {
                     <p className="text-xs font-mono text-ink-muted/60">No sessions yet. Create one above.</p>
                   ) : (
                     <div className="space-y-1.5">
-                      {sessions.map((session) => (
+                      {paginatedSessions.map((session) => (
                         <button
                           key={session.id}
                           onClick={() => loadSession(session.id)}
@@ -471,6 +541,27 @@ export default function StudyPage() {
                           <span className="text-xs font-mono text-ink-muted/50 ml-2">{session.message_count} msgs</span>
                         </button>
                       ))}
+                      {sessionTotal > sessionLimit && (
+                        <div className="flex items-center justify-center gap-2 pt-2">
+                          <button
+                            onClick={() => setSessionSkip((s) => Math.max(0, s - sessionLimit))}
+                            disabled={!sessionHasPrev}
+                            className="h-6 px-2 rounded-[2px] border border-border-subtle text-[9px] font-mono font-bold hover:border-ink hover:bg-card-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
+                          >
+                            ← Prev
+                          </button>
+                          <span className="text-[9px] font-mono text-ink-muted/50">
+                            {sessionCurrentPage}/{sessionTotalPages}
+                          </span>
+                          <button
+                            onClick={() => setSessionSkip((s) => s + sessionLimit)}
+                            disabled={!sessionHasNext}
+                            className="h-6 px-2 rounded-[2px] border border-border-subtle text-[9px] font-mono font-bold hover:border-ink hover:bg-card-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
+                          >
+                            Next →
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

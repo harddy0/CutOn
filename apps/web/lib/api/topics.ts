@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type { TopicResponse, CreateTopicRequest, UpdateTopicRequest } from "./dto/topics";
+import type { PaginatedResponse } from "./dto";
 
 // ---------------------------------------------------------------------------
 // List topics
@@ -10,8 +11,8 @@ export interface ListTopicsParams {
   limit?: number;
 }
 
-export async function listTopics(params?: ListTopicsParams): Promise<TopicResponse[]> {
-  return api.get<TopicResponse[]>("/api/v1/topics/", {
+export async function listTopics(params?: ListTopicsParams): Promise<PaginatedResponse<TopicResponse>> {
+  return api.get<PaginatedResponse<TopicResponse>>("/api/v1/topics/", {
     auth: true,
     params: params as Record<string, string | number | boolean | null | undefined>,
   });

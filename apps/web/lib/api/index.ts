@@ -43,5 +43,7 @@ export {
 } from "./study";
 export type { ListStudySessionsParams } from "./study";
 
+export { getDashboardStats } from "./dashboard";
+
 export { searchQuery } from "./query";
 export type { QueryRequest, QueryResponse, QueryResultItem } from "./dto/query";

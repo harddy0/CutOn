@@ -26,11 +26,23 @@ export type {
   ChunkingProgressResponse,
 } from "./sources";
 
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
 export type {
   QueryRequest,
   QueryResponse,
   QueryResultItem,
 } from "./query";
+
+export type {
+  AuditLogResponse,
+  DashboardStatsResponse,
+} from "./dashboard";
 
 export type {
   StudySessionResponse,

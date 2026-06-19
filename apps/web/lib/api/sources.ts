@@ -4,6 +4,7 @@ import type {
   DocumentChunkResponse,
   ChunkingProgressResponse,
 } from "./dto/sources";
+import type { PaginatedResponse } from "./dto";
 
 // ---------------------------------------------------------------------------
 // List sources
@@ -15,8 +16,8 @@ export interface ListSourcesParams {
   limit?: number;
 }
 
-export async function listSources(params?: ListSourcesParams): Promise<SourceResponse[]> {
-  return api.get<SourceResponse[]>("/api/v1/sources/", {
+export async function listSources(params?: ListSourcesParams): Promise<PaginatedResponse<SourceResponse>> {
+  return api.get<PaginatedResponse<SourceResponse>>("/api/v1/sources/", {
     auth: true,
     params: params as Record<string, string | number | boolean | null | undefined>,
   });

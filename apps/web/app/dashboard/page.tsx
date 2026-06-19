@@ -3,14 +3,11 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  listTopics,
-  listJournalEntries,
-  listSources,
-  listStudySessions,
+  getDashboardStats,
   searchQuery,
   ApiError,
 } from "@/lib/api";
-import type { QueryResultItem } from "@/lib/api";
+import type { DashboardStatsResponse, QueryResultItem } from "@/lib/api";
 import { BrainLogo } from "@/components/icons/brain-logo";
 
 // ---------------------------------------------------------------------------
@@ -39,12 +36,12 @@ function formatDate(iso: string): string {
 // ---------------------------------------------------------------------------
 
 const STATS = [
-  { key: "topics", label: "Topics", href: "/dashboard/topics", accent: "text-blue-accent", gradient: "from-blue-start to-blue-end", icon: "folder" },
-  { key: "sources", label: "Documents", href: "/dashboard/sources", accent: "text-green-accent", gradient: "from-green-start to-green-end", icon: "file" },
-  { key: "journal", label: "Journal Entries", href: "/dashboard/journal", accent: "text-purple-accent", gradient: "from-purple-start to-purple-end", icon: "note" },
-  { key: "sessions", label: "Study Sessions", href: "/dashboard/study", accent: "text-green-accent", gradient: "from-green-start to-green-end", icon: "chat" },
-  { key: "quizzes", label: "Quizzes", href: "/dashboard/quizzes", accent: "text-blue-accent", gradient: "from-blue-start to-blue-end", icon: "quiz" },
-  { key: "queries", label: "RAG Queries", accent: "text-purple-accent", gradient: "from-purple-start to-purple-end", icon: "search" },
+  { key: "topics", label: "Topics", href: "/dashboard/topics", accent: "text-blue-accent", gradient: "from-blue-start to-blue-end", icon: "folder", countKey: "total_topics" as const, sub: null },
+  { key: "sources", label: "Documents", href: "/dashboard/sources", accent: "text-green-accent", gradient: "from-green-start to-green-end", icon: "file", countKey: "total_sources" as const, sub: (s: DashboardStatsResponse) => `${s.total_chunks} chunk${s.total_chunks !== 1 ? "s" : ""}` },
+  { key: "journal", label: "Journal Entries", href: "/dashboard/journal", accent: "text-purple-accent", gradient: "from-purple-start to-purple-end", icon: "note", countKey: "total_journals" as const, sub: (s: DashboardStatsResponse) => `${s.journals_last_7_days} this week` },
+  { key: "sessions", label: "Study Sessions", href: "/dashboard/study", accent: "text-green-accent", gradient: "from-green-start to-green-end", icon: "chat", countKey: "total_sessions" as const, sub: (s: DashboardStatsResponse) => s.active_sessions > 0 ? `${s.active_sessions} active` : null },
+  { key: "quizzes", label: "Quizzes", href: "/dashboard/quizzes", accent: "text-blue-accent", gradient: "from-blue-start to-blue-end", icon: "quiz", countKey: "total_quizzes" as const, sub: (s: DashboardStatsResponse) => s.total_quizzes > 0 ? `${(s.avg_quiz_score * 100).toFixed(0)}% avg` : null },
+  { key: "queries", label: "RAG Queries", accent: "text-purple-accent", gradient: "from-purple-start to-purple-end", icon: "search", countKey: "total_rag_queries" as const, sub: (s: DashboardStatsResponse) => s.total_rag_queries > 0 ? `${(s.rag_positive_rate * 100).toFixed(0)}% positive` : null },
 ] as const;
 
 const STAT_ICONS: Record<string, React.ReactNode> = {
@@ -99,7 +96,7 @@ const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
 
 export default function DashboardPage() {
   // ── Stats ──
-  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [stats, setStats] = useState<DashboardStatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   // ── Query ──
@@ -121,20 +118,8 @@ export default function DashboardPage() {
     setStatsLoading(true);
     setError(null);
     try {
-      const [topics, journals, sources, sessions] = await Promise.all([
-        listTopics(),
-        listJournalEntries(),
-        listSources(),
-        listStudySessions(),
-      ]);
-      setCounts({
-        topics: topics.length,
-        journal: journals.length,
-        sources: sources.length,
-        sessions: sessions.length,
-        quizzes: 0,
-        queries: 0,
-      });
+      const data = await getDashboardStats();
+      setStats(data);
     } catch (err: unknown) {
       setError(extractErrorMessage(err));
     } finally {
@@ -382,8 +367,9 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
-            {STATS.map((s, i) => {
-              const count = counts[s.key] ?? 0;
+            {stats && STATS.map((s, i) => {
+              const count = stats[s.countKey] ?? 0;
+              const subText = s.sub ? s.sub(stats) : null;
               const hasHref = "href" in s;
               const content = (
                 <div
@@ -401,14 +387,14 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <p className="text-xs md:text-sm font-black text-ink">{s.label}</p>
-                  {!hasHref && (
-                    <span className="text-[10px] font-mono text-ink-muted/50 mt-0.5 block">Tracked in real-time</span>
+                  {subText && (
+                    <span className="text-[10px] font-mono text-ink-muted/50 mt-0.5 block">{subText}</span>
                   )}
                 </div>
               );
 
               if (hasHref) {
-                return <Link key={s.key} href={s.href}>{content}</Link>;
+                return <Link key={s.key} href={s.href!}>{content}</Link>;
               }
               return <div key={s.key}>{content}</div>;
             })}
