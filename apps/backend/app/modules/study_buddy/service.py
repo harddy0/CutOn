@@ -10,6 +10,7 @@ from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
+from app.core.genai_adapter import get_client, with_thinking
 from app.db.client import DatabaseClient
 from app.modules.audit.service import AuditService
 from app.modules.embeddings.service import EmbeddingsService
@@ -108,8 +109,6 @@ class StudyBuddyService:
         self._db = db_client
         self._audit = AuditService(db_client)
         self._embedder = EmbeddingsService()
-        self._llm: Optional[genai.Client] = None
-
     # ------------------------------------------------------------------
     # Collection helpers
     # ------------------------------------------------------------------
@@ -146,9 +145,7 @@ class StudyBuddyService:
 
     @property
     def _llm_client(self) -> genai.Client:
-        if self._llm is None:
-            self._llm = genai.Client(api_key=settings.gemini_api_key)
-        return self._llm
+        return get_client()
 
     # ------------------------------------------------------------------
     # Session CRUD
@@ -352,7 +349,7 @@ class StudyBuddyService:
         response = self._llm_client.models.generate_content(
             model=settings.gemini_model,
             contents=prompt,
-            config={"response_mime_type": "application/json"},
+            config=with_thinking({"response_mime_type": "application/json"}),  # type: ignore[arg-type]
         )
 
         raw = response.text.strip() if response.text else "{}"

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from bson import ObjectId
@@ -9,6 +9,7 @@ from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
+from app.core.genai_adapter import get_client, with_thinking
 from app.db.client import DatabaseClient
 from app.modules.rag_evaluation.dto import (
     RAGEvaluationResponse,
@@ -47,8 +48,6 @@ class RAGEvaluationService:
 
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
-        self._llm: Optional[genai.Client] = None
-
     @property
     def _evaluations_collection(self) -> AsyncCollection:
         coll = self._db.rag_evaluations
@@ -57,9 +56,7 @@ class RAGEvaluationService:
 
     @property
     def _llm_client(self) -> genai.Client:
-        if self._llm is None:
-            self._llm = genai.Client(api_key=settings.gemini_api_key)
-        return self._llm
+        return get_client()
 
     # ------------------------------------------------------------------
     # Log a RAG interaction
@@ -292,6 +289,7 @@ class RAGEvaluationService:
             response = self._llm_client.models.generate_content(
                 model=settings.gemini_model,
                 contents=prompt,
+                config=with_thinking(),  # type: ignore[arg-type]
             )
             raw = response.text.strip() if response.text else ""
             score = float(raw)

@@ -11,6 +11,7 @@ from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
+from app.core.genai_adapter import get_client, with_thinking
 from app.db.client import DatabaseClient
 from app.modules.embeddings.service import EmbeddingsService
 from app.modules.query.dto import QueryRequest, QueryResultItem, QueryResponse
@@ -75,7 +76,6 @@ class QueryService:
     def __init__(self, db_client: type[DatabaseClient]) -> None:
         self._db = db_client
         self._embedder = EmbeddingsService()
-        self._llm: Optional[genai.Client] = None
         self._rag_eval = RAGEvaluationService(db_client)
 
     # ------------------------------------------------------------------ helpers
@@ -100,9 +100,7 @@ class QueryService:
 
     @property
     def _llm_client(self) -> genai.Client:
-        if self._llm is None:
-            self._llm = genai.Client(api_key=settings.gemini_api_key)
-        return self._llm
+        return get_client()
 
     # ------------------------------------------------------------------ topic resolution
 
@@ -407,5 +405,6 @@ class QueryService:
         response = self._llm_client.models.generate_content(
             model=settings.gemini_model,
             contents=prompt,
+            config=with_thinking(),  # type: ignore[arg-type]
         )
         return response.text.strip() if response.text else "I couldn't generate an answer from the retrieved context."
