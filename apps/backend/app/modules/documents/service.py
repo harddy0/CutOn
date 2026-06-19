@@ -8,6 +8,7 @@ from bson.errors import InvalidId
 from fastapi import HTTPException, UploadFile
 from pymongo.asynchronous.collection import AsyncCollection
 from app.core.config import settings
+from app.core.dto import PaginatedResponse
 from app.db.client import DatabaseClient
 from app.modules.audit.service import AuditService
 from app.modules.documents.chunker import Chunk, chunk_text
@@ -275,31 +276,37 @@ class DocumentsService:
 
     async def list_by_user(
         self, user_id: str, skip: int = 0, limit: int = 100
-    ) -> list[SourceResponse]:
+    ) -> PaginatedResponse[SourceResponse]:
         coll = self._sources_collection
+        query: dict = {"user_id": ObjectId(user_id)}
+        total = await coll.count_documents(query)
         cursor = (
-            coll.find({"user_id": ObjectId(user_id)})
+            coll.find(query)
             .sort("ingested_at", -1)
             .skip(skip)
             .limit(limit)
         )
-        return [self._format_source(doc) async for doc in cursor]
+        items = [self._format_source(doc) async for doc in cursor]
+        return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
     async def list_by_topic(
         self, user_id: str, topic_id: str, skip: int = 0, limit: int = 100
-    ) -> list[SourceResponse]:
+    ) -> PaginatedResponse[SourceResponse]:
         coll = self._sources_collection
         try:
             topic_oid = ObjectId(topic_id)
         except (InvalidId, TypeError):
             raise HTTPException(status_code=400, detail="Invalid topic_id format")
+        query: dict = {"user_id": ObjectId(user_id), "topic_id": topic_oid}
+        total = await coll.count_documents(query)
         cursor = (
-            coll.find({"user_id": ObjectId(user_id), "topic_id": topic_oid})
+            coll.find(query)
             .sort("ingested_at", -1)
             .skip(skip)
             .limit(limit)
         )
-        return [self._format_source(doc) async for doc in cursor]
+        items = [self._format_source(doc) async for doc in cursor]
+        return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
     # ------------------------------------------------------------------ get source
 

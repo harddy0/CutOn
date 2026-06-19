@@ -59,11 +59,28 @@ Below is the relevant context pulled from their personal data:
 --- CONVERSATION HISTORY (last 20 messages) ---
 {history}
 
-1. Always start your answer anchored in the user's own data.
-2. Use citations: [Doc: filename] or [Journal: YYYY-MM-DD]
-3. Supplement with general knowledge ONLY when their data doesn't fully cover \
-the question. Label supplemented parts with "Based on general study techniques…"
-4. NEVER say you can't answer — always help them learn using what you have.
+### HOW TO USE EACH DATA TYPE
+1. **JOURNAL ENTRIES** (most important) — These are the user's personal notes,\n   reflections, and insights. They represent what the user has already thought\
+   about and understood. **Weight these more heavily** than document chunks.\
+   Always connect your answer back to the user's own journal entries first.\
+   Use citations: [Journal: YYYY-MM-DD]
+
+2. **DOCUMENT CHUNKS** — These are from uploaded reference materials (PDFs,\n   text files). Use them to fill gaps or provide deeper explanations.\
+   Use citations: [Doc: filename]
+
+3. **CONVERSATION HISTORY** — The ongoing chat. Maintain continuity by\
+   referencing what was discussed earlier.
+
+4. **GENERAL KNOWLEDGE** — Supplement ONLY when the user's data doesn't fully\
+   cover the question. Label supplemented parts with "Based on general study\
+   techniques…"
+
+## RESPONSE RULES
+1. Always start your answer anchored in the user's OWN journal entries — this\
+   shows you value their personal notes above all else.
+2. Ask yourself: "What did the user write in their journals that relates to\
+   this?" and surface those connections explicitly.
+3. NEVER say you can't answer — always help them learn using what you have.
 
 ## DETECT JOURNAL-WORTHY MOMENTS
 Journal-worthy moments include:
@@ -494,7 +511,7 @@ class StudyBuddyService:
         if assistant_msg:
             await self._messages_collection.update_one(
                 {"_id": assistant_msg["_id"]},
-                {"$set": {"metadata.journal_created": ObjectId(journal_id)}},
+                {"$set": {"metadata.journal_created": journal_id}},
             )
 
         # 8. Increment journal count on session
@@ -536,17 +553,18 @@ class StudyBuddyService:
         if topic_id:
             mongo_filter["topic_id"] = topic_id
 
-        top_k = 5  # Fewer results for chat context vs query
+        top_k_chunks = 5   # Document chunks — fewer, high-precision
+        top_k_journals = 12  # Journal entries — more, catch low-match personal notes
 
-        # ── Search chunks ────────────────────────────────────
+        # ── Search chunks (keep top_k tight — docs are supplementary) ────
         chunk_pipeline = [
             {
                 "$vectorSearch": {
                     "index": VECTOR_INDEX_CHUNKS,
                     "queryVector": query_vector,
                     "path": "embedding",
-                    "numCandidates": top_k * 20,
-                    "limit": top_k,
+                    "numCandidates": top_k_chunks * 20,
+                    "limit": top_k_chunks,
                     "filter": mongo_filter,
                 }
             },
@@ -575,22 +593,22 @@ class StudyBuddyService:
                 f"[Doc: {doc['original_filename']} (score: {doc['score']:.3f})]\n"
                 f"{doc['text'][:1500]}\n"
             )
-        context_chunks = "\n".join(chunk_lines) if chunk_lines else "No relevant documents found."
 
-        # ── Search journals ──────────────────────────────────
+        # ── Search journals (wider net + recent fallback) ───────────────
         journal_pipeline = [
             {
                 "$vectorSearch": {
                     "index": VECTOR_INDEX_JOURNALS,
                     "queryVector": query_vector,
                     "path": "embedding",
-                    "numCandidates": top_k * 20,
-                    "limit": top_k,
+                    "numCandidates": top_k_journals * 20,
+                    "limit": top_k_journals,
                     "filter": mongo_filter,
                 }
             },
             {
                 "$project": {
+                    "_id": 1,
                     "content": 1,
                     "created_at": 1,
                     "score": {"$meta": "vectorSearchScore"},
@@ -598,9 +616,14 @@ class StudyBuddyService:
             },
         ]
 
+        # Track seen journal IDs to avoid duplicates
+        seen_journal_ids: set[str] = set()
+
         journal_lines: list[str] = []
         cursor = await self._journals_collection.aggregate(journal_pipeline)
         async for doc in cursor:
+            jid = str(doc["_id"])
+            seen_journal_ids.add(jid)
             date_str = ""
             if isinstance(doc.get("created_at"), datetime):
                 date_str = doc["created_at"].strftime("%Y-%m-%d")
@@ -608,6 +631,36 @@ class StudyBuddyService:
                 f"[Journal: {date_str} (score: {doc['score']:.3f})]\n"
                 f"{doc['content'][:1500]}\n"
             )
+
+        # ── Recent-journals fallback ────────────────────────────────
+        # Also fetch the 5 most recent journals from this session's topic
+        # (or user-wide if no topic). This ensures the Study Buddy always
+        # sees the user's latest personal notes, even if vector similarity
+        # is low.
+        recent_query: dict = {"user_id": ObjectId(user_id)}
+        if topic_id:
+            recent_query["topic_id"] = topic_id
+
+        recent_cursor = (
+            self._journals_collection
+            .find(recent_query, {"_id": 1, "content": 1, "created_at": 1})
+            .sort("created_at", -1)
+            .limit(5)
+        )
+        async for doc in recent_cursor:
+            jid = str(doc["_id"])
+            if jid in seen_journal_ids:
+                continue  # Already included from vector search
+            seen_journal_ids.add(jid)
+            date_str = ""
+            if isinstance(doc.get("created_at"), datetime):
+                date_str = doc["created_at"].strftime("%Y-%m-%d")
+            journal_lines.append(
+                f"[Journal: {date_str} (recent)]\n"
+                f"{doc['content'][:1500]}\n"
+            )
+
+        context_chunks = "\n".join(chunk_lines) if chunk_lines else "No relevant documents found."
         context_journals = "\n".join(journal_lines) if journal_lines else "No relevant journals found."
 
         return context_chunks, context_journals
