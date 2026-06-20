@@ -2,6 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.dto import PaginatedResponse
 from app.db.client import DatabaseClient
 from app.modules.auth.deps import require_user
 from app.modules.journal.dto import (
@@ -34,7 +35,7 @@ async def create_journal_entry(
     return await service.create(current_user.id, payload)
 
 
-@router.get("/", response_model=list[JournalEntryResponse])
+@router.get("/", response_model=PaginatedResponse[JournalEntryResponse])
 async def list_journal_entries(
     topic_id: Optional[str] = None,
     skip: int = 0,

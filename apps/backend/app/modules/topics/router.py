@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.dto import PaginatedResponse
 from app.db.client import DatabaseClient
 from app.modules.auth.deps import require_user
 from app.modules.topics.dto import CreateTopicRequest, UpdateTopicRequest, TopicResponse
@@ -22,7 +23,7 @@ async def create_topic(
     return await service.create(current_user.id, payload)
 
 
-@router.get("/", response_model=list[TopicResponse])
+@router.get("/", response_model=PaginatedResponse[TopicResponse])
 async def list_topics(
     skip: int = 0,
     limit: int = 100,

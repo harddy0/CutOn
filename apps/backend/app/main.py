@@ -21,6 +21,7 @@ from app.modules.quizzes.router import router as quizzes_router
 from app.modules.study_buddy.router import router as study_buddy_router
 from app.modules.rag_evaluation.router import router as rag_evaluation_router
 from app.modules.audit.router import router as audit_router
+from app.modules.dashboard.router import router as dashboard_router
 from app.modules.notifications.router import router as notifications_router
 
 # -- Rate limiter (keyed by IP, shared with auth router) --
@@ -75,6 +76,7 @@ app.include_router(study_buddy_router, prefix="/api/v1")
 app.include_router(rag_evaluation_router, prefix="/api/v1")
 app.include_router(audit_router, prefix="/api/v1")
 app.include_router(notifications_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/v1")
 
 
 @app.get("/health")

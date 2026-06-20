@@ -1,0 +1,25 @@
+═══════════════════════════════════════════════════════════
+  CUTON BACKEND — SESSION CHANGELOG
+  Date: 2026-06-20
+═══════════════════════════════════════════════════════════
+
+
+1. BUG FIX — Dashboard Service Overwhelming M0 Atlas Cluster
+──────────────────────────────────────────────────────────────
+  File:    app/modules/dashboard/service.py
+
+  Problem: 11 MongoDB queries were fired in parallel via
+           asyncio.gather, including 3 heavy $facet aggregations.
+           This overwhelmed M0 Atlas free tier, causing
+           ServerSelectionTimeoutError (no primary found).
+
+  Fix:     Removed asyncio.gather — all queries now run
+           sequentially one at a time instead of 11 concurrent
+           operations.
+           Replaced $facet aggregations with simple
+           count_documents calls, which are much lighter on
+           shared clusters.
+           Removed unused asyncio import.
+
+  Result:  Dashboard loads slightly slower (~hundreds of ms
+           more) but no longer overwhelms the database.

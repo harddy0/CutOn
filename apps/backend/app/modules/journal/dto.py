@@ -18,7 +18,6 @@ class JournalEntryResponse(BaseModel):
     user_id: str
     topic_id: str
     content: str
-    embedding: list[float] = []
     embedding_status: str = "PENDING"
     created_at: datetime
     updated_at: datetime

@@ -2,6 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form
 
+from app.core.dto import PaginatedResponse
 from app.db.client import DatabaseClient
 from app.modules.auth.deps import require_user
 from app.modules.documents.dto import (
@@ -35,7 +36,7 @@ async def upload_document(
     return await service.upload(current_user.id, topic_id, file)
 
 
-@router.get("/", response_model=list[SourceResponse])
+@router.get("/", response_model=PaginatedResponse[SourceResponse])
 async def list_sources(
     topic_id: Optional[str] = None,
     skip: int = 0,

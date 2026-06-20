@@ -7,6 +7,7 @@ from pymongo.asynchronous.collection import AsyncCollection
 from pymongo import ReturnDocument
 
 from app.core.config import settings
+from app.core.dto import PaginatedResponse
 from app.db.client import DatabaseClient
 from app.modules.audit.service import AuditService
 from app.modules.journal.dto import (
@@ -38,7 +39,6 @@ class JournalEntriesService:
             user_id=str(doc["user_id"]),
             topic_id=str(doc["topic_id"]),
             content=doc["content"],
-            embedding=doc.get("embedding", []),
             embedding_status=doc.get("embedding_status", "PENDING"),
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
@@ -103,7 +103,6 @@ class JournalEntriesService:
         doc = {
             "user_id": ObjectId(user_id),
             "topic_id": topic_oid,
-            "content": payload.content,
             "content": payload.content,
             "embedding": [],
             "embedding_status": "PENDING",
@@ -180,32 +179,36 @@ class JournalEntriesService:
 
     async def list_by_user(
         self, user_id: str, skip: int = 0, limit: int = 100
-    ) -> list[JournalEntryResponse]:
+    ) -> PaginatedResponse[JournalEntryResponse]:
         """Return a paginated list of journal entries belonging to the authenticated user."""
         collection = self._journal_collection
+        query: dict = {"user_id": ObjectId(user_id)}
+        total = await collection.count_documents(query)
         cursor = (
-            collection.find({"user_id": ObjectId(user_id)})
+            collection.find(query, {"embedding": 0})
             .sort("created_at", -1)
             .skip(skip)
             .limit(limit)
         )
-        return [self._format_entry(doc) async for doc in cursor]
+        items = [self._format_entry(doc) async for doc in cursor]
+        return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)
 
     async def list_by_topic(
         self, user_id: str, topic_id: str, skip: int = 0, limit: int = 100
-    ) -> list[JournalEntryResponse]:
+    ) -> PaginatedResponse[JournalEntryResponse]:
         """Return paginated entries for a specific topic, ensuring user ownership."""
         collection = self._journal_collection
         try:
             topic_oid = ObjectId(topic_id)
         except (InvalidId, TypeError):
             raise HTTPException(status_code=400, detail="Invalid topic_id format")
+        query: dict = {"user_id": ObjectId(user_id), "topic_id": topic_oid}
+        total = await collection.count_documents(query)
         cursor = (
-            collection.find(
-                {"user_id": ObjectId(user_id), "topic_id": topic_oid}
-            )
+            collection.find(query, {"embedding": 0})
             .sort("created_at", -1)
             .skip(skip)
             .limit(limit)
         )
-        return [self._format_entry(doc) async for doc in cursor]
+        items = [self._format_entry(doc) async for doc in cursor]
+        return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)

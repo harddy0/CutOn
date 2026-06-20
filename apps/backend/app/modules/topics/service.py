@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo import ReturnDocument
 
+from app.core.dto import PaginatedResponse
 from app.db.client import DatabaseClient
 from app.modules.audit.service import AuditService
 from app.modules.topics.dto import CreateTopicRequest, UpdateTopicRequest, TopicResponse
@@ -135,13 +136,16 @@ class TopicsService:
         await collection.delete_one({"_id": ObjectId(topic_id)})
         await self._audit.log(user_id, "topic.delete", "topic", topic_id, {})
 
-    async def list_by_user(self, user_id: str, skip: int = 0, limit: int = 100) -> list[TopicResponse]:
+    async def list_by_user(self, user_id: str, skip: int = 0, limit: int = 100) -> PaginatedResponse[TopicResponse]:
         """Return a paginated list of topics belonging to the authenticated user."""
         collection = self._topics_collection
+        query: dict = {"user_id": ObjectId(user_id)}
+        total = await collection.count_documents(query)
         cursor = (
-            collection.find({"user_id": ObjectId(user_id)})
+            collection.find(query)
             .sort("created_at", -1)
             .skip(skip)
             .limit(limit)
         )
-        return [self._format_topic(doc) async for doc in cursor]
+        items = [self._format_topic(doc) async for doc in cursor]
+        return PaginatedResponse(items=items, total=total, skip=skip, limit=limit)

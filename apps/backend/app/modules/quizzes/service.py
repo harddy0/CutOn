@@ -12,6 +12,7 @@ from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
+from app.core.genai_adapter import get_client, with_thinking
 from app.db.client import DatabaseClient
 from app.modules.audit.service import AuditService
 from app.modules.embeddings.service import EmbeddingsService
@@ -192,8 +193,6 @@ class QuizzesService:
         self._db = db_client
         self._audit = AuditService(db_client)
         self._embedder = EmbeddingsService()
-        self._llm: Optional[genai.Client] = None
-
     # ------------------------------------------------------------------
     # Collection helpers
     # ------------------------------------------------------------------
@@ -236,9 +235,7 @@ class QuizzesService:
 
     @property
     def _llm_client(self) -> genai.Client:
-        if self._llm is None:
-            self._llm = genai.Client(api_key=settings.gemini_api_key)
-        return self._llm
+        return get_client()
 
     # ------------------------------------------------------------------
     # Ownership checks
@@ -481,9 +478,9 @@ class QuizzesService:
         response = self._llm_client.models.generate_content(
             model=settings.gemini_model,
             contents=prompt,
-            config={
+            config=with_thinking({  # type: ignore[arg-type]
                 "response_mime_type": "application/json",
-            },
+            }),
         )
 
         raw = response.text.strip() if response.text else ""
@@ -504,11 +501,10 @@ class QuizzesService:
             )
             response = self._llm_client.models.generate_content(
                 model=settings.gemini_model,
-                contents=retry_prompt,
-                config={
-                    "response_mime_type": "application/json",
-                },
-            )
+                contents=retry_prompt,            config=with_thinking({  # type: ignore[arg-type]
+                "response_mime_type": "application/json",
+            }),
+        )
             raw = response.text.strip() if response.text else ""
             try:
                 quiz_data = json.loads(raw)
