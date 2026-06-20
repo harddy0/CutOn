@@ -173,23 +173,68 @@ export default function TopicsPage() {
 
   return (
     <div>
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-ink">Topics</h1>
-          <p className="text-sm font-mono text-ink-muted">
-            Organize your learning into topic areas.
-          </p>
+      {/* ════════════════════════════════════════
+          HERO HEADER
+          ════════════════════════════════════════ */}
+      <div className="relative overflow-hidden mb-8 rounded-[4px] bg-surface border-2 border-ink shadow-hard p-6 md:p-8">
+        <div className="absolute inset-0 -z-10 bg-gradient-to-br from-green-start/50 via-blue-start/20 to-purple-start/30" />
+        <div className="absolute -top-8 -right-8 w-40 h-40 bg-gradient-to-br from-green-start/20 to-green-end/10 border-2 border-ink rounded-[4px] shadow-hard rotate-12 hidden md:block animate-float-slow pointer-events-none select-none" />
+        <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-gradient-to-br from-blue-start/20 to-purple-start/10 border-2 border-ink rounded-[4px] shadow-hard -rotate-6 hidden md:block animate-float pointer-events-none select-none" />
+        <div className="absolute top-1/4 left-16 w-16 h-16 bg-gradient-to-br from-green-start/20 to-blue-start/10 border-2 border-ink rounded-[4px] shadow-hard rotate-45 hidden lg:block animate-float-delayed pointer-events-none select-none" />
+
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[4px] border border-ink bg-gradient-to-r from-green-start to-green-end">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M1.5 3h4l2 2h3v5.5h-9v-7.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                </svg>
+                <span className="text-[10px] font-mono font-bold text-green-accent uppercase tracking-wider">Topics</span>
+              </span>
+            </div>
+            <h1 className="text-xl md:text-3xl font-black tracking-tight bg-gradient-to-r from-green-accent via-blue-accent to-purple-accent bg-clip-text text-transparent animate-fade-up">
+              Your Learning Topics
+            </h1>
+            <p className="text-sm font-mono text-ink-muted mt-1 animate-fade-up-1">
+              Organize your knowledge into focused topic areas.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowCreate((v) => !v)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end text-ink font-bold text-sm shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-hard-hover active:translate-x-[1px] active:translate-y-[1px] active:shadow-hard-active transition-all duration-100 shrink-0"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
+              <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+            {showCreate ? "Cancel" : "New Topic"}
+          </button>
         </div>
-        <button
-          onClick={() => setShowCreate((v) => !v)}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end text-ink font-bold text-sm shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-hard-hover active:translate-x-[1px] active:translate-y-[1px] active:shadow-hard-active transition-all duration-100"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-            <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-          </svg>
-          {showCreate ? "Cancel" : "New Topic"}
-        </button>
+
+        {/* ── Quick stats bar ── */}
+        {!loading && topics.length > 0 && (
+          <div className="mt-5 pt-4 border-t border-border-subtle animate-fade-up-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-[4px] border border-border-subtle bg-canvas/50 p-2.5">
+                <span className="text-lg font-black text-green-accent">{total}</span>
+                <p className="text-[10px] font-mono font-bold text-ink-muted/60 uppercase tracking-wider">Total topics</p>
+              </div>
+              <div className="rounded-[4px] border border-border-subtle bg-canvas/50 p-2.5">
+                <span className="text-lg font-black text-blue-accent">{topics.filter((t) => t.description).length}</span>
+                <p className="text-[10px] font-mono font-bold text-ink-muted/60 uppercase tracking-wider">With descriptions</p>
+              </div>
+              <div className="rounded-[4px] border border-border-subtle bg-canvas/50 p-2.5">
+                <div className="flex items-center gap-1">
+                  <span className="text-lg font-black text-purple-accent">{topics.filter((t) => new Date(t.created_at) >= new Date(Date.now() - 7 * 86400000)).length}</span>
+                </div>
+                <p className="text-[10px] font-mono font-bold text-ink-muted/60 uppercase tracking-wider">This week</p>
+              </div>
+              <div className="rounded-[4px] border border-border-subtle bg-canvas/50 p-2.5 overflow-hidden">
+                <span className="text-lg font-black text-ink truncate block">{topics.length > 0 ? topics[0]?.name ?? '—' : '—'}</span>
+                <p className="text-[10px] font-mono font-bold text-ink-muted/60 uppercase tracking-wider">Newest topic</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Error ── */}
@@ -244,32 +289,66 @@ export default function TopicsPage() {
 
       {/* ── Topics grid ── */}
       {loading ? (
-        <div className="flex items-center gap-2 py-16 justify-center">
-          <div className="w-2 h-2 rounded-full bg-green-accent animate-pulse border border-ink" />
-          <span className="text-sm font-mono font-bold text-ink-muted">Loading topics…</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="rounded-[4px] border-2 border-ink bg-surface shadow-hard p-5 animate-shimmer" style={{ animationDelay: `${i * 100}ms` }}>
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="w-24 h-5 rounded-[4px] bg-ink/5 mb-2" />
+                  <div className="w-full h-3 rounded-[2px] bg-ink/5 mb-1" />
+                  <div className="w-3/4 h-3 rounded-[2px] bg-ink/5" />
+                </div>
+                <div className="flex gap-1">
+                  <div className="w-7 h-7 rounded-[4px] bg-ink/5" />
+                  <div className="w-7 h-7 rounded-[4px] bg-ink/5" />
+                </div>
+              </div>
+              <div className="pt-3 border-t border-border-subtle flex items-center justify-between">
+                <div className="w-16 h-3 rounded-[2px] bg-ink/5" />
+                <div className="w-12 h-3 rounded-[2px] bg-ink/5" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : topics.length === 0 ? (
-        <div className="rounded-[4px] bg-surface border-2 border-ink p-10 shadow-hard text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-[4px] border-2 border-ink bg-gradient-to-br from-blue-start to-blue-end mb-4">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M10 3v14M3 10h14" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" />
+        <div className="relative overflow-hidden rounded-[4px] bg-surface border-2 border-ink p-10 md:p-14 shadow-hard text-center">
+          <div className="absolute inset-0 -z-10 bg-gradient-to-br from-green-start/30 via-blue-start/10 to-purple-start/20" />
+          <div className="absolute -top-6 -right-6 w-32 h-32 bg-gradient-to-br from-green-start/20 to-green-end/10 border-2 border-ink rounded-[4px] shadow-hard rotate-12 hidden md:block animate-float-slow pointer-events-none select-none" />
+          <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-gradient-to-br from-blue-start/20 to-purple-start/10 border-2 border-ink rounded-[4px] shadow-hard -rotate-6 hidden md:block animate-float pointer-events-none select-none" />
+
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end mb-5 animate-float">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M2 6h8l2 2h9v12H3V6z" stroke="#1A1A1A" strokeWidth="1.5" strokeLinejoin="round" />
+              <path d="M8 12h8M8 16h6" stroke="#1A1A1A" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </div>
-          <p className="text-sm font-mono font-bold text-ink-muted mb-1">No topics yet</p>
-          <p className="text-xs font-mono text-ink-muted/60">
-            Click &quot;New Topic&quot; above to create your first one.
+          <p className="text-lg font-black tracking-tight text-ink mb-1">
+            No topics yet
           </p>
+          <p className="text-sm font-mono text-ink-muted/70 mb-6 max-w-md mx-auto">
+            Create your first topic to start organizing your learning materials.
+          </p>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end text-ink font-bold text-sm shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-hard-hover transition-all"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+            Create Your First Topic
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {topics.map((topic) => {
+          {topics.map((topic, index) => {
             const isEditing = editingId === topic.id;
             const isDeleting = deletingId === topic.id;
 
             return (
               <div
                 key={topic.id}
-                className="group rounded-[4px] bg-surface border-2 border-ink p-5 shadow-hard transition-all duration-150 hover:shadow-hard-hover hover:translate-x-[1px] hover:translate-y-[1px]"
+                className="group rounded-[4px] bg-surface border-2 border-ink p-5 shadow-hard transition-all duration-200 hover:shadow-hard-hover hover:translate-x-[1px] hover:translate-y-[1px] animate-scale-in"
+                style={{ animationDelay: `${index * 60}ms` }}
               >
                 {isEditing ? (
                   /* ── Edit mode ── */

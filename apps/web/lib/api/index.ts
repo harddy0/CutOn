@@ -45,5 +45,24 @@ export type { ListStudySessionsParams } from "./study";
 
 export { getDashboardStats } from "./dashboard";
 
+export {
+  generateQuiz,
+  listQuizzes,
+  getQuiz,
+  deleteQuiz,
+  submitAttempt,
+  listAttempts,
+} from "./quiz";
+export type {
+  GenerateQuizRequest,
+  SubmitAttemptRequest,
+  QuizResponse,
+  QuizSummaryResponse,
+  QuizQuestionResponse,
+  QuizOptionResponse,
+  QuizAttemptResponse,
+  GradedAnswerResponse,
+} from "./dto/quiz";
+
 export { searchQuery } from "./query";
 export type { QueryRequest, QueryResponse, QueryResultItem } from "./dto/query";

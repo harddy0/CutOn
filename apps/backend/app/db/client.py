@@ -40,7 +40,9 @@ class DatabaseClient:
         ],
         "sources": [
             ([("user_id", 1)], {"name": "idx_sources_user_id"}),
+            ([("user_id", 1), ("ingested_at", -1)], {"name": "idx_sources_user_ingested"}),
             ([("topic_id", 1)], {"name": "idx_sources_topic_id"}),
+            ([("user_id", 1), ("topic_id", 1), ("ingested_at", -1)], {"name": "idx_sources_user_topic_ingested"}),
             ([("file_hash", 1)], {"name": "idx_sources_file_hash"}),
         ],
         "document_chunks": [
@@ -55,6 +57,7 @@ class DatabaseClient:
         ],
         "journal_entries": [
             ([("user_id", 1)], {"name": "idx_journals_user_id"}),
+            ([("user_id", 1), ("created_at", -1)], {"name": "idx_journals_user_created"}),
             ([("topic_id", 1)], {"name": "idx_journals_topic_id"}),
             ([("user_id", 1), ("topic_id", 1), ("created_at", -1)], {"name": "idx_journals_user_topic_created"}),
             ([("embedding_model", 1)], {"name": "idx_journals_embedding_model"}),

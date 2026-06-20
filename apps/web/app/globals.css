@@ -88,6 +88,16 @@
   animation: float 6s ease-in-out 0.5s infinite;
 }
 
+/* ── Slide-in from left (mobile nav drawer) ── */
+@keyframes slide-in-left {
+  0%   { opacity: 0; transform: translateX(-24px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.25s ease-out both;
+}
+
 /* ── Fade-in slide-up ── */
 @keyframes fade-up {
   0%   { opacity: 0; transform: translateY(16px); }
@@ -111,6 +121,34 @@
 
 .animate-pulse-glow {
   animation: pulse-glow 3s ease-in-out infinite;
+}
+
+/* ── Shimmer loading skeleton ── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.8s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(59, 203, 138, 0.08) 25%,
+    rgba(160, 124, 184, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* ── Scale in (for entry cards) ── */
+@keyframes scale-in {
+  0%   { opacity: 0; transform: scale(0.97) translateY(12px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.4s ease-out both;
 }
 
 /* ── Hide scrollbar (used in dashboard nav) ── */

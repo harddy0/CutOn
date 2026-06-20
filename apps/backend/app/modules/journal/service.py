@@ -104,7 +104,6 @@ class JournalEntriesService:
             "user_id": ObjectId(user_id),
             "topic_id": topic_oid,
             "content": payload.content,
-            "content": payload.content,
             "embedding": [],
             "embedding_status": "PENDING",
             "embedding_model": settings.embedding_model,
@@ -186,7 +185,7 @@ class JournalEntriesService:
         query: dict = {"user_id": ObjectId(user_id)}
         total = await collection.count_documents(query)
         cursor = (
-            collection.find(query)
+            collection.find(query, {"embedding": 0})
             .sort("created_at", -1)
             .skip(skip)
             .limit(limit)
@@ -206,7 +205,7 @@ class JournalEntriesService:
         query: dict = {"user_id": ObjectId(user_id), "topic_id": topic_oid}
         total = await collection.count_documents(query)
         cursor = (
-            collection.find(query)
+            collection.find(query, {"embedding": 0})
             .sort("created_at", -1)
             .skip(skip)
             .limit(limit)

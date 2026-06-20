@@ -91,8 +91,24 @@ export default function StudyPage() {
   const [confirmingJournal, setConfirmingJournal] = useState(false);
   const [journalConfirmed, setJournalConfirmed] = useState(false);
 
-  // ── Scroll ref ──
+  // ── Scroll refs ──
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  // ── Track if user is near bottom ──
+  const isNearBottom = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return true;
+    const threshold = 120; // px from bottom to consider "near bottom"
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
+  // ── Scroll to bottom function ──
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: smooth ? "smooth" : "instant" });
+    }
+  }, []);
 
   // ------------------------------------------------------------------
   // Fetch sessions
@@ -256,31 +272,41 @@ export default function StudyPage() {
   );
 
   // ------------------------------------------------------------------
-  // Auto-scroll to bottom on new messages
+  // Smart auto-scroll — only scrolls if user is near bottom
   // ------------------------------------------------------------------
 
+  // Scroll on initial load of messages (switching sessions)
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    scrollToBottom(false);
+  }, [activeSessionId, scrollToBottom]);
+
+  // Scroll on new messages if user is near bottom
+  useEffect(() => {
+    if (isNearBottom()) {
+      scrollToBottom(true);
+    }
+  }, [messages, isNearBottom, scrollToBottom]);
+
+
 
   // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
 
   return (
-    <div className="flex flex-col h-[calc(100vh-9rem)]">
-      {/* ── Header ── */}
-      <div className="flex items-start justify-between mb-4 flex-wrap gap-3 shrink-0">
+    <div className="flex flex-col h-[calc(100dvh-7rem)] md:h-[calc(100vh-8rem)] min-h-0">
+      {/* ── Minimal header ── */}
+      <div className="flex items-center justify-between mb-3 shrink-0">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-ink">Study Buddy</h1>
-          <p className="text-sm font-mono text-ink-muted">
-            Conversations with your AI tutor, powered by your own materials.
+          <h1 className="text-lg md:text-xl font-black tracking-tight text-ink">Study Buddy</h1>
+          <p className="text-xs font-mono text-ink-muted">
+            Chat with your AI tutor, powered by your own materials.
           </p>
         </div>
         <button
           onClick={handleCreateSession}
           disabled={loadingSessions}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end text-ink font-bold text-sm shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-hard-hover active:translate-x-[1px] active:translate-y-[1px] active:shadow-hard-active transition-all duration-100 disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end text-ink font-bold text-xs md:text-sm shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-hard-hover active:translate-x-[1px] active:translate-y-[1px] active:shadow-hard-active transition-all duration-100 disabled:opacity-40 shrink-0"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
             <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
@@ -291,20 +317,20 @@ export default function StudyPage() {
 
       {/* ── Error ── */}
       {error && (
-        <div className="mb-3 shrink-0 rounded-[4px] border-2 border-red-400 bg-red-50 p-3">
+        <div className="mb-2 shrink-0 rounded-[4px] border-2 border-red-400 bg-red-50 p-2.5">
           <p className="text-xs font-mono font-bold text-red-600">{error}</p>
         </div>
       )}
 
       {/* ── Main content ── */}
-      <div className="flex-1 flex gap-4 min-h-0">
+      <div className="flex-1 flex gap-3 md:gap-4 min-h-0">
         {/* ════════════════════════════════════════
             MOBILE SESSION OVERLAY
             ════════════════════════════════════════ */}
         {showMobileSessions && (
           <div className="fixed inset-0 z-50 md:hidden">
-            <div className="absolute inset-0 bg-ink/20" onClick={() => setShowMobileSessions(false)} />
-            <div className="absolute left-0 top-0 bottom-0 w-64 bg-surface border-r-2 border-ink shadow-hard overflow-hidden flex flex-col animate-fade-up">
+            <div className="absolute inset-0 bg-ink/20 backdrop-blur-sm" onClick={() => setShowMobileSessions(false)} />
+            <div className="absolute left-0 top-0 bottom-0 w-72 max-w-[80vw] bg-surface border-r-2 border-ink shadow-hard overflow-hidden flex flex-col animate-slide-in-left">
               <div className="px-3 py-2.5 border-b-2 border-ink bg-gradient-to-r from-green-start/30 to-blue-start/30 flex items-center justify-between">
                 <span className="text-[10px] font-mono font-bold text-ink-muted uppercase tracking-wider">
                   Sessions
@@ -402,7 +428,7 @@ export default function StudyPage() {
         {/* ════════════════════════════════════════
             SESSION SIDEBAR (desktop)
             ════════════════════════════════════════ */}
-        <div className="hidden md:flex flex-col w-56 shrink-0 rounded-[4px] bg-surface border-2 border-ink shadow-hard overflow-hidden">
+        <div className="hidden md:flex flex-col w-64 lg:w-72 shrink-0 rounded-[4px] bg-surface border-2 border-ink shadow-hard overflow-hidden">
           <div className="px-3 py-2.5 border-b-2 border-ink bg-gradient-to-r from-green-start/30 to-blue-start/30">
             <span className="text-[10px] font-mono font-bold text-ink-muted uppercase tracking-wider">
               Sessions
@@ -507,17 +533,21 @@ export default function StudyPage() {
         <div className="flex-1 flex flex-col min-w-0 rounded-[4px] bg-surface border-2 border-ink shadow-hard overflow-hidden">
           {!activeSessionId ? (
             /* ── Empty state (no session selected) ── */
-            <div className="flex-1 flex items-center justify-center p-8">
+            <div className="relative flex-1 flex items-center justify-center p-6 md:p-10">
+              <div className="absolute inset-0 -z-10 bg-gradient-to-br from-green-start/20 via-blue-start/10 to-purple-start/15" />
+              <div className="absolute -top-4 -right-4 w-24 h-24 bg-gradient-to-br from-green-start/15 to-green-end/10 border-2 border-ink rounded-[4px] shadow-hard rotate-12 hidden md:block animate-float-slow pointer-events-none select-none" />
+              <div className="absolute -bottom-4 -left-4 w-20 h-20 bg-gradient-to-br from-blue-start/15 to-purple-start/10 border-2 border-ink rounded-[4px] shadow-hard -rotate-6 hidden md:block animate-float pointer-events-none select-none" />
+
               <div className="text-center max-w-sm">
-                <div className="inline-flex items-center justify-center w-14 h-14 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end mb-5">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end mb-5 animate-float">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
                     <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="#1A1A1A" strokeWidth="1.5" strokeLinejoin="round" />
                     <path d="M2 17l10 5 10-5" stroke="#1A1A1A" strokeWidth="1.5" strokeLinejoin="round" />
                     <path d="M2 12l10 5 10-5" stroke="#1A1A1A" strokeWidth="1.5" strokeLinejoin="round" />
                   </svg>
                 </div>
-                <h2 className="text-lg font-black tracking-tight text-ink mb-1">Start a Conversation</h2>
-                <p className="text-sm font-mono text-ink-muted/70 mb-5">
+                <h2 className="text-xl font-black tracking-tight text-ink mb-1">Start a Conversation</h2>
+                <p className="text-sm font-mono text-ink-muted/70 mb-6 max-w-xs mx-auto">
                   Select a session from the sidebar or create a new one to begin chatting with your AI Study Buddy.
                 </p>
                 {/* Mobile: show sessions inline */}
@@ -535,7 +565,7 @@ export default function StudyPage() {
                         <button
                           key={session.id}
                           onClick={() => loadSession(session.id)}
-                          className="w-full text-left px-3 py-2 rounded-[4px] border-2 border-border-subtle hover:border-ink hover:bg-card-hover transition-all"
+                          className="w-full text-left px-3.5 py-2.5 rounded-[4px] border-2 border-border-subtle hover:border-ink hover:bg-card-hover transition-all"
                         >
                           <span className="text-sm font-bold text-ink">{session.title || "Untitled"}</span>
                           <span className="text-xs font-mono text-ink-muted/50 ml-2">{session.message_count} msgs</span>
@@ -546,17 +576,17 @@ export default function StudyPage() {
                           <button
                             onClick={() => setSessionSkip((s) => Math.max(0, s - sessionLimit))}
                             disabled={!sessionHasPrev}
-                            className="h-6 px-2 rounded-[2px] border border-border-subtle text-[9px] font-mono font-bold hover:border-ink hover:bg-card-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
+                            className="h-7 px-2.5 rounded-[2px] border border-border-subtle text-[10px] font-mono font-bold hover:border-ink hover:bg-card-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
                           >
                             ← Prev
                           </button>
-                          <span className="text-[9px] font-mono text-ink-muted/50">
+                          <span className="text-[10px] font-mono text-ink-muted/50">
                             {sessionCurrentPage}/{sessionTotalPages}
                           </span>
                           <button
                             onClick={() => setSessionSkip((s) => s + sessionLimit)}
                             disabled={!sessionHasNext}
-                            className="h-6 px-2 rounded-[2px] border border-border-subtle text-[9px] font-mono font-bold hover:border-ink hover:bg-card-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
+                            className="h-7 px-2.5 rounded-[2px] border border-border-subtle text-[10px] font-mono font-bold hover:border-ink hover:bg-card-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
                           >
                             Next →
                           </button>
@@ -570,15 +600,15 @@ export default function StudyPage() {
           ) : (
             <>
               {/* ── Chat header with session title ── */}
-              <div className="px-5 py-3 border-b-2 border-ink bg-gradient-to-r from-green-start/20 to-blue-start/20 flex items-center justify-between shrink-0">
+              <div className="px-4 md:px-5 py-2.5 md:py-3 border-b-2 border-ink bg-gradient-to-r from-green-start/20 to-blue-start/20 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                   {/* Mobile: back to sessions */}
                   <button
                     onClick={() => setShowMobileSessions(true)}
-                    className="md:hidden w-7 h-7 flex items-center justify-center rounded-[4px] border border-border-subtle hover:border-ink hover:bg-card-hover transition-all shrink-0"
+                    className="md:hidden w-8 h-8 flex items-center justify-center rounded-[4px] border-2 border-ink hover:bg-card-hover active:translate-x-[1px] active:translate-y-[1px] transition-all shrink-0"
                     title="Switch session"
                   >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
                       <path d="M2 3h8M2 6h8M2 9h8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                     </svg>
                   </button>
@@ -591,7 +621,7 @@ export default function StudyPage() {
               </div>
 
               {/* ── Messages ── */}
-              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-hide">
+              <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-3 md:px-5 py-3 md:py-4 space-y-3 md:space-y-4 scrollbar-hide">
                 {loadingMessages ? (
                   <div className="flex items-center gap-2 py-12 justify-center">
                     <div className="w-2 h-2 rounded-full bg-green-accent animate-pulse border border-ink" />
@@ -764,8 +794,8 @@ export default function StudyPage() {
               </div>
 
               {/* ── Input ── */}
-              <div className="shrink-0 border-t-2 border-ink p-3 bg-canvas">
-                <div className="flex items-end gap-2">
+              <div className="shrink-0 border-t-2 border-ink p-3 md:p-4 bg-gradient-to-t from-canvas via-canvas to-transparent">
+                <div className="flex items-end gap-2 md:gap-3">
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -773,20 +803,23 @@ export default function StudyPage() {
                     placeholder="Ask your Study Buddy anything…"
                     rows={1}
                     disabled={sending}
-                    className="flex-1 min-h-[44px] max-h-[120px] px-3.5 py-2.5 bg-surface border-2 border-ink rounded-[4px] text-sm font-medium text-ink placeholder:text-ink-muted/40 focus:outline-none focus:ring-2 focus:ring-green-accent/30 transition-all resize-none disabled:opacity-40"
+                    className="flex-1 min-h-[48px] max-h-[140px] px-4 py-3 bg-surface border-2 border-ink rounded-[4px] text-sm font-medium text-ink placeholder:text-ink-muted/40 focus:outline-none focus:ring-2 focus:ring-green-accent/30 transition-all resize-none disabled:opacity-40"
                   />
                   <button
                     onClick={handleSend}
                     disabled={sending || !input.trim() || !activeSessionId}
-                    className="shrink-0 h-[44px] w-[44px] flex items-center justify-center rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end text-ink shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-hard-hover active:translate-x-[1px] active:translate-y-[1px] active:shadow-hard-active transition-all duration-100 disabled:opacity-40 disabled:pointer-events-none"
+                    className="shrink-0 h-[48px] w-[48px] flex items-center justify-center rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end text-ink shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-hard-hover active:translate-x-[1px] active:translate-y-[1px] active:shadow-hard-active transition-all duration-100 disabled:opacity-40 disabled:pointer-events-none"
                     title="Send message"
                   >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
                       <path d="M2 8l12-6-6 12-2-4-4-2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                       <path d="M6 8h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                     </svg>
                   </button>
                 </div>
+                <p className="mt-1.5 text-[9px] font-mono text-ink-muted/40 text-center">
+                  Enter to send · Shift+Enter for new line
+                </p>
               </div>
             </>
           )}

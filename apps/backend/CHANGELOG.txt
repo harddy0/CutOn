@@ -1,146 +1,25 @@
 ═══════════════════════════════════════════════════════════
   CUTON BACKEND — SESSION CHANGELOG
-  Date: 2026-06-19
+  Date: 2026-06-20
 ═══════════════════════════════════════════════════════════
 
 
-1. BUG FIX — Study Session Retrieval
-─────────────────────────────────────
-  File:    app/modules/study_buddy/service.py
-  Problem: PydanticSerializationError — unable to serialize ObjectId
-           when retrieving a session after confirming a journal.
-  Fix:     Changed metadata.journal_created to store a plain string
-           (journal_id) instead of ObjectId(journal_id).
-
-
-2. API CHANGE — Journal Endpoints (embedding removed)
-──────────────────────────────────────────────────────
-  File:    app/modules/journal/dto.py
-           app/modules/journal/service.py
-
-  CHANGE:  JournalEntryResponse no longer includes the `embedding`
-           vector (list[float]). The 3072-dim vector was only used
-           internally by the AI engine and caused response delays.
-
-  Removed field:
-    - embedding: list[float]   ← no longer sent to the client
-
-  Kept:
-    - embedding_status: str    ← still returned so frontend can poll
-
-
-3. API CHANGE — PaginatedResponse for ALL list endpoints
-─────────────────────────────────────────────────────────
-  New file:  app/core/dto.py  ← PaginatedResponse[T] generic DTO
-
-  All three list endpoints now return a wrapped response with
-  pagination metadata instead of a bare array:
-
-  ┌─────────────────────────┬─────────────────────────────────────┐
-  │ Endpoint                │ Before             │ After          │
-  ├─────────────────────────┼─────────────────────────────────────┤
-  │ GET /journal-entries/   │ [...]              │ { items,       │
-  │                         │                    │   total,       │
-  │ GET /topics/            │ [...]              │   skip,        │
-  │                         │                    │   limit }      │
-  │ GET /sources/           │ [...]              │                │
-  └─────────────────────────┴─────────────────────────────────────┘
-
-  The `total` field allows the frontend to build proper page controls.
-  ⚠ Frontend must now read response.items instead of the bare array.
-
-
-4. NEW MODULE — Dashboard / Reports
-────────────────────────────────────
-  New files:
-    app/modules/dashboard/__init__.py
-    app/modules/dashboard/dto.py
-    app/modules/dashboard/service.py
-    app/modules/dashboard/router.py
-
-  Registered in: app/main.py
-
-  Endpoint:
-    GET  /api/v1/dashboard/stats   →  DashboardStatsResponse
-
-  Response shape (single call replaces 16+ individual queries):
-  {
-    "total_topics": int,
-    "total_journals": int,
-    "journals_last_7_days": int,
-    "journals_embedded": int,
-    "total_sources": int,
-    "total_chunks": int,
-    "chunks_embedded": int,
-    "total_quizzes": int,
-    "avg_quiz_score": float,
-    "active_sessions": int,
-    "total_sessions": int,
-    "unread_notifications": int,
-    "total_rag_queries": int,
-    "rag_positive_rate": float,
-    "recent_activity": [AuditLogResponse],
-    "generated_at": datetime
-  }
-
-  Performance features:
-    - $facet aggregations (multiple counts in 1 DB call)
-    - In-memory TTL cache (60 seconds)
-    - All DB queries run in parallel via asyncio.gather
-
-
-5. IMPROVEMENT — Study Buddy Journal Retrieval
-───────────────────────────────────────────────
-  File:    app/modules/study_buddy/service.py
-
-  Three changes to make the Study Buddy better at reading
-  the user's personal journal notes:
-
-  a) Vector search widened: top_k_journals 5 → 12
-     (more low-match journal entries are included)
-
-  b) Recent-journals fallback: always fetches the 5 most recent
-     journals from the session's topic (or user-wide) and merges
-     them with vector results, deduplicated by _id.
-
-  c) Prompt updated: added "HOW TO USE EACH DATA TYPE" section
-     that ranks JOURNAL ENTRIES first and instructs the LLM
-     to weight personal notes most heavily.
-     Response rules now start with:
-       "Always start your answer anchored in the user's OWN
-        journal entries"
-
-
-6. PERFORMANCE — Dashboard Optimized
-─────────────────────────────────────
+1. BUG FIX — Dashboard Service Overwhelming M0 Atlas Cluster
+──────────────────────────────────────────────────────────────
   File:    app/modules/dashboard/service.py
-           app/modules/dashboard/dto.py
 
-  - Merged 15+ individual count_documents into 3 $facet aggregations
-    (journals, chunks, RAG) — reduced DB round-trips by ~60%
-  - Added in-memory TTL cache (60s) — most dashboard loads hit cache
-  - Removed unused `total_quiz_attempts` field (smaller payload)
-  - Removed unused imports (settings, Any)
+  Problem: 11 MongoDB queries were fired in parallel via
+           asyncio.gather, including 3 heavy $facet aggregations.
+           This overwhelmed M0 Atlas free tier, causing
+           ServerSelectionTimeoutError (no primary found).
 
+  Fix:     Removed asyncio.gather — all queries now run
+           sequentially one at a time instead of 11 concurrent
+           operations.
+           Replaced $facet aggregations with simple
+           count_documents calls, which are much lighter on
+           shared clusters.
+           Removed unused asyncio import.
 
-═══════════════════════════════════════════════════════════
-  FILES SUMMARY
-═══════════════════════════════════════════════════════════
-
-  NEW FILES:
-    app/core/dto.py                          — PaginatedResponse[T]
-    app/modules/dashboard/__init__.py
-    app/modules/dashboard/dto.py
-    app/modules/dashboard/service.py
-    app/modules/dashboard/router.py
-
-  MODIFIED FILES:
-    app/main.py                              — Added dashboard router
-    app/modules/study_buddy/service.py       — Bug fix + journal improvements
-    app/modules/journal/dto.py               — Removed embedding field
-    app/modules/journal/service.py           — Paginated + no embedding
-    app/modules/journal/router.py            — PaginatedResponse wrapper
-    app/modules/topics/service.py            — Paginated list
-    app/modules/topics/router.py             — PaginatedResponse wrapper
-    app/modules/documents/service.py         — Paginated list
-    app/modules/documents/router.py          — PaginatedResponse wrapper
+  Result:  Dashboard loads slightly slower (~hundreds of ms
+           more) but no longer overwhelms the database.

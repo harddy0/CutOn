@@ -1,4 +1,3 @@
-import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -39,13 +38,14 @@ def _cache_set(key: str, value: DashboardStatsResponse) -> None:
 
 
 class DashboardService:
-    """Generates aggregate dashboard stats with minimal database round‑trips.
+    """Generates aggregate dashboard stats with minimal database impact.
 
     Performance strategy
     --------------------
-    * Multi‑metric collections use a single ``$facet`` aggregation instead of
-      N separate ``count_documents`` calls (1 network hop instead of N).
-    * All per‑collection pipelines run concurrently via ``asyncio.gather``.
+    * All queries run sequentially (not in parallel) to avoid overwhelming
+      the database — especially important on M0 Atlas free tier.
+    * Uses simple ``count_documents`` calls instead of ``$facet`` aggregations,
+      which are much lighter on shared clusters.
     * Results are cached in‑memory for 60 seconds so the database is only hit
       once per minute per user.
     """
@@ -126,101 +126,48 @@ class DashboardService:
         now = datetime.utcnow()
         seven_days_ago = now - timedelta(days=7)
 
-        # ── Fire all collection aggregations in parallel ───────────────
-        (
-            journal_counts,
-            chunk_counts,
-            rag_counts,
-            total_topics,
-            total_sources,
-            total_quizzes,
-            quiz_avg,
-            active_sessions,
-            total_sessions,
-            unread_notifications,
-        ) = await asyncio.gather(
-            # Journals — 3 counts in 1 $facet
-            self._journals.aggregate([
-                {"$match": {"user_id": oid}},
-                {
-                    "$facet": {
-                        "total": [{"$count": "value"}],
-                        "last_7": [
-                            {"$match": {"created_at": {"$gte": seven_days_ago}}},
-                            {"$count": "value"},
-                        ],
-                        "embedded": [
-                            {"$match": {"embedding_status": "COMPLETED"}},
-                            {"$count": "value"},
-                        ],
-                    }
-                },
-            ]).to_list(length=1),
+        # ── Run queries sequentially to avoid overwhelming the DB ──────
+        # Simple count_documents calls are much lighter than $facet
+        # aggregations on shared M0 clusters.
 
-            # Chunks — 2 counts in 1 $facet
-            self._chunks.aggregate([
-                {"$match": {"user_id": oid}},
-                {
-                    "$facet": {
-                        "total": [{"$count": "value"}],
-                        "embedded": [
-                            {"$match": {"embedding_status": "COMPLETED"}},
-                            {"$count": "value"},
-                        ],
-                    }
-                },
-            ]).to_list(length=1),
-
-            # RAG evaluations — 3 counts in 1 $facet
-            self._rag_evaluations.aggregate([
-                {"$match": {"user_id": oid}},
-                {
-                    "$facet": {
-                        "total": [{"$count": "value"}],
-                        "positive": [
-                            {"$match": {"user_rating": 1}},
-                            {"$count": "value"},
-                        ],
-                        "rated": [
-                            {"$match": {"user_rating": {"$ne": None}}},
-                            {"$count": "value"},
-                        ],
-                    }
-                },
-            ]).to_list(length=1),
-
-            # Single-count collections (kept as simple count_documents)
-            self._topics.count_documents({"user_id": oid}),
-            self._sources.count_documents({"user_id": oid}),
-            self._quizzes.count_documents({"user_id": oid}),
-            self._compute_avg_quiz_score(oid),  # Single aggregation
-            self._sessions.count_documents({"user_id": oid, "status": "active"}),
-            self._sessions.count_documents({"user_id": oid}),
-            self._notifications.count_documents({"user_id": oid, "is_read": False}),
+        total_topics = await self._topics.count_documents({"user_id": oid})
+        total_sources = await self._sources.count_documents({"user_id": oid})
+        total_quizzes = await self._quizzes.count_documents({"user_id": oid})
+        total_sessions = await self._sessions.count_documents({"user_id": oid})
+        active_sessions = await self._sessions.count_documents(
+            {"user_id": oid, "status": "active"}
+        )
+        unread_notifications = await self._notifications.count_documents(
+            {"user_id": oid, "is_read": False}
         )
 
-        # ── Extract facet results ──────────────────────────────────────
+        total_journals = await self._journals.count_documents({"user_id": oid})
+        journals_last_7 = await self._journals.count_documents(
+            {"user_id": oid, "created_at": {"$gte": seven_days_ago}}
+        )
+        journals_embedded = await self._journals.count_documents(
+            {"user_id": oid, "embedding_status": "COMPLETED"}
+        )
 
-        def _facet_val(data: list[dict], key: str) -> int:
-            """Extract a count from a ``$facet`` result bucket."""
-            bucket = data[0].get(key, []) if data else []
-            return bucket[0]["value"] if bucket else 0
+        total_chunks = await self._chunks.count_documents({"user_id": oid})
+        chunks_embedded = await self._chunks.count_documents(
+            {"user_id": oid, "embedding_status": "COMPLETED"}
+        )
 
-        total_journals = _facet_val(journal_counts, "total")
-        journals_last_7 = _facet_val(journal_counts, "last_7")
-        journals_embedded = _facet_val(journal_counts, "embedded")
+        total_rag_queries = await self._rag_evaluations.count_documents({"user_id": oid})
+        total_rag_rated = await self._rag_evaluations.count_documents(
+            {"user_id": oid, "user_rating": {"$ne": None}}
+        )
+        positive_ratings = await self._rag_evaluations.count_documents(
+            {"user_id": oid, "user_rating": 1}
+        )
 
-        total_chunks = _facet_val(chunk_counts, "total")
-        chunks_embedded = _facet_val(chunk_counts, "embedded")
-
-        total_rag_queries = _facet_val(rag_counts, "total")
-        positive_ratings = _facet_val(rag_counts, "positive")
-        total_ratings = _facet_val(rag_counts, "rated")
+        quiz_avg = await self._compute_avg_quiz_score(oid)
 
         # ── Derived values ─────────────────────────────────────────────
         rag_positive_rate = (
-            round(positive_ratings / total_ratings * 100, 1)
-            if total_ratings > 0
+            round(positive_ratings / total_rag_rated * 100, 1)
+            if total_rag_rated > 0
             else 0.0
         )
 
