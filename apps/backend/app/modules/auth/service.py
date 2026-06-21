@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import logging
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from bson import ObjectId
@@ -45,8 +45,8 @@ class AuthService:
     def _create_token(user_id: str) -> str:
         payload = {
             "sub": user_id,
-            "iat": datetime.utcnow(),
-            "exp": datetime.utcnow() + timedelta(minutes=settings.jwt_expire_minutes),
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes),
         }
         return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -76,7 +76,7 @@ class AuthService:
             "role": "user",
             "is_active": True,
             "preferences": {"email_notifications": True},
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "last_login": None,
         }
 
@@ -120,7 +120,7 @@ class AuthService:
         # Update last_login
         await collection.update_one(
             {"_id": doc["_id"]},
-            {"$set": {"last_login": datetime.utcnow()}},
+            {"$set": {"last_login": datetime.now(timezone.utc)}},
         )
 
         await self._audit.log(
@@ -163,7 +163,7 @@ class AuthService:
         # Generate a raw token and persist its hash
         raw_token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-        expires_at = datetime.utcnow() + timedelta(
+        expires_at = datetime.now(timezone.utc) + timedelta(
             minutes=settings.reset_token_expire_minutes
         )
 
@@ -172,7 +172,7 @@ class AuthService:
             "token_hash": token_hash,
             "expires_at": expires_at,
             "used": False,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         }
         await self._reset_tokens_collection.insert_one(token_doc)
 
@@ -221,7 +221,7 @@ class AuthService:
                 detail="This reset link has already been used.",
             )
 
-        if doc["expires_at"] < datetime.utcnow():
+        if doc["expires_at"] < datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=400,
                 detail="This reset link has expired.",

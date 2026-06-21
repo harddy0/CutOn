@@ -230,17 +230,16 @@ async def generate_text_stream_async(
         """Run the sync streaming iterator in a thread, pushing tokens
         to the asyncio queue as they arrive."""
         try:
-            response = client.models.generate_content(
+            response = client.models.generate_content_stream(
                 model=resolved_model,
                 contents=prompt,
                 config=merged_config if merged_config else None,  # type: ignore[arg-type]
-                stream=True,  # type: ignore[call-arg]
             )
             for chunk in response:
                 if chunk.text:  # type: ignore[attr-defined]
                     loop.call_soon_threadsafe(queue.put_nowait, chunk.text)  # type: ignore[attr-defined,arg-type]
         except Exception as exc:
-            loop.call_soon_threadsafe(lambda: queue.put_nowait(exc))
+            loop.call_soon_threadsafe(lambda e=exc: queue.put_nowait(e))
             return
         loop.call_soon_threadsafe(queue.put_nowait, None)  # type: ignore[arg-type]
 

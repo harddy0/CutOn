@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -69,7 +69,7 @@ class UsersService:
             "role": "user",
             "is_active": True,
             "preferences": {"email_notifications": True},
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "last_login": None,
         }
 

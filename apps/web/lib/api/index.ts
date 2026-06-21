@@ -73,5 +73,20 @@ export type {
   GradedAnswerResponse,
 } from "./dto/quiz";
 
+export {
+  listUsers,
+  createUser,
+  getUser,
+  updateUser,
+  deactivateUser,
+} from "./users";
+export type { ListUsersParams } from "./users";
+
+export {
+  getAdminRagStats,
+  listAdminRagEvaluations,
+} from "./rag-admin";
+export type { RAGStatsResponse, RAGEvaluationResponse, ListAdminRagEvaluationsParams } from "./rag-admin";
+
 export { searchQuery, searchQueryStream } from "./query";
 export type { QueryRequest, QueryResponse, QueryResultItem } from "./dto/query";

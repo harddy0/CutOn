@@ -87,7 +87,7 @@ async def search_knowledge_stream(
 
     # 3. SSE generator — stream tokens from Gemini
     async def event_stream():
-        yield f"data: {json.dumps({'type': 'results', 'results': [r.model_dump() for r in results]})}\n\n"
+        yield f"event: results\ndata: {json.dumps([r.model_dump() for r in results])}\n\n"
 
         try:
             async for token in generate_text_stream_async(
@@ -95,9 +95,9 @@ async def search_knowledge_stream(
                 model=settings.gemini_model,
                 config=with_thinking(),  # type: ignore[arg-type]
             ):
-                yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
-            yield "data: {\"type\": \"done\"}\n\n"
+                yield f"event: token\ndata: {token}\n\n"
+            yield "event: done\ndata: {}\n\n"
         except Exception as exc:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from pymongo import MongoClient
@@ -82,7 +83,7 @@ def generate_document_chunk_embedding(self, chunk_id: str) -> None:
     service = _get_embeddings_service()
 
     try:
-        embedding = service.embed_text(doc["text"])
+        embedding = asyncio.run(service.embed_text(doc["text"]))
     except Exception as exc:
         logger.exception(
             "Embedding failed for chunk %s (attempt %d/%d) — %s: %s",
@@ -190,7 +191,7 @@ def _update_source_status_if_done(
                 "message": f"\u201c{filename}\u201d has been fully ingested and is ready for queries and quizzes.",
                 "is_read": False,
                 "action_url": None,
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(timezone.utc),
             })
             logger.info(
                 "Notification created for user %s — document '%s' ready",

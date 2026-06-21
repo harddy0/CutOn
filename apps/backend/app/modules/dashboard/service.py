@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from pymongo.asynchronous.collection import AsyncCollection
@@ -164,7 +164,7 @@ class DashboardService:
             return DashboardLearningResponse(**cached)
 
         oid = ObjectId(user_id)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         seven_days_ago = now - timedelta(days=7)
 
         total_journals = await self._journals.count_documents({"user_id": oid})
@@ -280,7 +280,7 @@ class DashboardService:
         This ensures consistency — the old endpoint and the new split
         endpoints share the same caching and business logic.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         summary, learning, quiz, rag, activity = await asyncio.gather(
             self.get_summary(user_id),

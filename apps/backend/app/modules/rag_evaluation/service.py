@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
@@ -95,7 +95,7 @@ class RAGEvaluationService:
             "user_rating": None,
             "user_feedback": None,
             "faithfulness_score": None,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         }
 
         result = await self._evaluations_collection.insert_one(doc)

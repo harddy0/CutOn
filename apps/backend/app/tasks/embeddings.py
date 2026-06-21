@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from bson import ObjectId
@@ -79,7 +80,7 @@ def generate_journal_embedding(self, entry_id: str) -> None:
     service = _get_embeddings_service()
 
     try:
-        embedding = service.embed_text(doc["content"])
+        embedding = asyncio.run(service.embed_text(doc["content"]))
     except Exception as exc:
         logger.exception(
             "Embedding failed for entry %s (attempt %d/%d) — %s: %s",

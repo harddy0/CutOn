@@ -129,15 +129,21 @@ class QueryService:
         # 2. Embed the topic query
         query_vector = await self._embedder.embed_text(topic_query)
 
-        # 3. Score each topic by cosine similarity
-        best_match: Optional[tuple[float, dict]] = None
+        # 3. Embed all topic names in parallel, then score by cosine similarity
+        topic_texts = []
         for topic in topics:
-            topic_text = topic["name"]
+            text = topic["name"]
             if topic.get("description"):
-                topic_text += " " + topic["description"]
-            topic_vector = await self._embedder.embed_text(topic_text)
-            score = self._cosine_similarity(query_vector, topic_vector)
+                text += " " + topic["description"]
+            topic_texts.append(text)
 
+        topic_vectors = await asyncio.gather(*[
+            self._embedder.embed_text(t) for t in topic_texts
+        ])
+
+        best_match: Optional[tuple[float, dict]] = None
+        for topic, topic_vector in zip(topics, topic_vectors):
+            score = self._cosine_similarity(query_vector, topic_vector)
             if best_match is None or score > best_match[0]:
                 best_match = (score, topic)
 

@@ -31,7 +31,7 @@ import asyncio
 import hashlib
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from pymongo import AsyncMongoClient
@@ -194,7 +194,7 @@ async def reset() -> None:
     # ── 1. Drop all collections ───────────────────────────────────────
     await _drop_all_collections(db, db_name)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # ── 2. Seed users ─────────────────────────────────────────────────
     users = await _seed_users(db, now)
@@ -241,7 +241,7 @@ async def reset() -> None:
     chunk_docs = []
     for i, text in enumerate(SEED_CHUNKS):
         logger.info("  Generating embedding for chunk %d/%d…", i + 1, len(SEED_CHUNKS))
-        embedding = embedder.embed_text(text)
+        embedding = await embedder.embed_text(text)
         chunk_docs.append(
             {
                 "user_id": user_id,
@@ -272,7 +272,7 @@ async def reset() -> None:
     # ── 6. Seed journal entry ─────────────────────────────────────────
     logger.info("Seeding journal entry…")
     logger.info("  Generating embedding…")
-    journal_embedding = embedder.embed_text(SEED_JOURNAL)
+    journal_embedding = await embedder.embed_text(SEED_JOURNAL)
     journal_result = await db["journal_entries"].insert_one(
         {
             "user_id": user_id,
