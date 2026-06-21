@@ -43,7 +43,14 @@ export {
 } from "./study";
 export type { ListStudySessionsParams } from "./study";
 
-export { getDashboardStats } from "./dashboard";
+export {
+  getDashboardSummary,
+  getDashboardLearning,
+  getDashboardQuizzes,
+  getDashboardRag,
+  getDashboardActivity,
+  getDashboardStats,
+} from "./dashboard";
 
 export {
   generateQuiz,

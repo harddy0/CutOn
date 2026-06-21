@@ -26,13 +26,6 @@ export type {
   ChunkingProgressResponse,
 } from "./sources";
 
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  skip: number;
-  limit: number;
-}
-
 export type {
   QueryRequest,
   QueryResponse,
@@ -41,6 +34,11 @@ export type {
 
 export type {
   AuditLogResponse,
+  DashboardSummaryResponse,
+  DashboardLearningResponse,
+  DashboardQuizResponse,
+  DashboardRagResponse,
+  DashboardActivityResponse,
   DashboardStatsResponse,
 } from "./dashboard";
 
@@ -56,3 +54,10 @@ export type {
   QuizSuggestion,
   ConfirmJournalResponse,
 } from "./study";
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  skip: number;
+  limit: number;
+}
