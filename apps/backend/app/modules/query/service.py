@@ -11,7 +11,7 @@ from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
-from app.core.genai_adapter import get_client, with_thinking
+from app.core.genai_adapter import generate_text_async, get_client, with_thinking
 from app.db.client import DatabaseClient
 from app.modules.embeddings.service import EmbeddingsService
 from app.modules.query.dto import QueryRequest, QueryResultItem, QueryResponse
@@ -126,7 +126,7 @@ class QueryService:
             )
 
         # 2. Embed the topic query
-        query_vector = self._embedder.embed_text(topic_query)
+        query_vector = await self._embedder.embed_text(topic_query)
 
         # 3. Score each topic by cosine similarity
         best_match: Optional[tuple[float, dict]] = None
@@ -134,7 +134,7 @@ class QueryService:
             topic_text = topic["name"]
             if topic.get("description"):
                 topic_text += " " + topic["description"]
-            topic_vector = self._embedder.embed_text(topic_text)
+            topic_vector = await self._embedder.embed_text(topic_text)
             score = self._cosine_similarity(query_vector, topic_vector)
 
             if best_match is None or score > best_match[0]:
@@ -177,7 +177,7 @@ class QueryService:
         """
         # 1. Vectorize the query --------------------------------------------
         _start = time.monotonic()
-        query_vector = self._embedder.embed_text(payload.query)
+        query_vector = await self._embedder.embed_text(payload.query)
 
         # 2. Build filter — always scoped to user, optionally to a topic
         mongo_filter: dict = {
@@ -335,7 +335,7 @@ class QueryService:
         # 6. Optional LLM synthesis -----------------------------------------
         answer: Optional[str] = None
         if payload.synthesize and all_results:
-            answer = self._synthesize(payload.query, all_results)
+            answer = await self._synthesize(payload.query, all_results)
 
         # Calculate latency
         latency_ms = int((time.monotonic() - _start) * 1000)
@@ -397,14 +397,18 @@ class QueryService:
             lines.append(f"{tag}\n{text}\n")
         return "\n".join(lines)
 
-    def _synthesize(self, query: str, results: list[QueryResultItem]) -> str:
-        """Send the search results + query to Gemini and return a cited answer."""
+    async def _synthesize(self, query: str, results: list[QueryResultItem]) -> str:
+        """Send the search results + query to Gemini and return a cited answer.
+
+        Runs the synchronous SDK call on a thread pool so the event loop
+        stays free for other requests.
+        """
         context = self._format_context(results)
         prompt = CONTEXT_SYNTHESIS_PROMPT.format(context=context, query=query)
 
-        response = self._llm_client.models.generate_content(
+        answer = await generate_text_async(
+            prompt,
             model=settings.gemini_model,
-            contents=prompt,
             config=with_thinking(),  # type: ignore[arg-type]
         )
-        return response.text.strip() if response.text else "I couldn't generate an answer from the retrieved context."
+        return answer if answer else "I couldn't generate an answer from the retrieved context."

@@ -1,25 +1,102 @@
 ═══════════════════════════════════════════════════════════
   CUTON BACKEND — SESSION CHANGELOG
-  Date: 2026-06-20
+  Date: 2026-06-21
 ═══════════════════════════════════════════════════════════
 
 
-1. BUG FIX — Dashboard Service Overwhelming M0 Atlas Cluster
+1. FEAT — Redis-Backed Caching with Tiered TTLs
 ──────────────────────────────────────────────────────────────
-  File:    app/modules/dashboard/service.py
+  Files:    app/db/redis_client.py (new)
+            app/main.py
+            app/modules/dashboard/service.py
 
-  Problem: 11 MongoDB queries were fired in parallel via
-           asyncio.gather, including 3 heavy $facet aggregations.
-           This overwhelmed M0 Atlas free tier, causing
-           ServerSelectionTimeoutError (no primary found).
+  Changes:
+    • New app/db/redis_client.py: async Redis singleton with
+      ConnectionPool, Pydantic serialization via model_dump_json(),
+      and transparent in-memory fallback when Redis is unavailable.
+    • Wired RedisClient.connect/close into app lifespan (main.py).
+    • Split monolithic /dashboard/stats into 5 specialized routes:
+      /summary (30s TTL), /learning (60s TTL), /quizzes (5min TTL),
+      /rag (5min TTL), /activity (30s TTL).
+    • Legacy /stats endpoint preserved (deprecated, delegates to
+      split methods via asyncio.gather).
 
-  Fix:     Removed asyncio.gather — all queries now run
-           sequentially one at a time instead of 11 concurrent
-           operations.
-           Replaced $facet aggregations with simple
-           count_documents calls, which are much lighter on
-           shared clusters.
-           Removed unused asyncio import.
 
-  Result:  Dashboard loads slightly slower (~hundreds of ms
-           more) but no longer overwhelms the database.
+2. FEAT — Async GenAI Calls via Thread Pool Offloading
+──────────────────────────────────────────────────────────────
+  Files:    app/core/genai_adapter.py
+            app/modules/embeddings/service.py
+            app/modules/query/service.py
+            app/modules/quizzes/service.py
+            app/modules/rag_evaluation/service.py
+            app/modules/study_buddy/service.py
+
+  Problem: All Gemini API calls (generate_content, embed_content)
+           were synchronous, blocking the FastAPI event loop.
+           A user request to /query or /study-sessions/{id}/chat
+           would stall ALL other API requests until Gemini
+           responded (2–20s).
+
+  Changes:
+    • genai_adapter.py:
+        - Added generate_text_async() — wraps sync SDK calls
+          in asyncio.to_thread() so the event loop stays free.
+        - Added generate_text_stream_async() — Queue-based SSE
+          streaming via thread pool (loop.run_in_executor).
+    • embeddings/service.py: Made embed_text() async via thread pool.
+    • query/service.py: Made _synthesize() async, all embed_text()
+      calls now awaited.
+    • study_buddy/service.py: chat() now calls generate_text_async(),
+      all embed_text() calls awaited.
+    • quizzes/service.py: _call_llm_for_quiz() now async, all
+      embed_text() calls awaited.
+    • rag_evaluation/service.py: _evaluate_faithfulness() now async,
+      _run_faithfulness() correctly awaits it.
+
+  Result: GenAI calls no longer block the event loop. Other API
+          requests process freely while Gemini is waiting.
+
+
+3. FEAT — SSE Streaming Endpoint for Query Synthesis
+──────────────────────────────────────────────────────────────
+  File:    app/modules/query/router.py
+
+  Changes:
+    • Added POST /query/stream — SSE streaming endpoint.
+    • Returns event stream: results (retrieved chunks) →
+      tokens (streamed synthesis) → done.
+    • Event types: results, token, error, done.
+    • Uses generate_text_stream_async() for real-time token delivery.
+
+
+4. FEAT — SSE Streaming Endpoint for Study Buddy Chat
+──────────────────────────────────────────────────────────────
+  Files:    app/modules/study_buddy/service.py
+            app/modules/study_buddy/router.py
+
+  Changes:
+    • service.py:
+        - Added STUDY_BUDDY_STREAM_PROMPT — clean prompt without
+          JSON output constraint.
+        - Added chat_stream() async generator — pre-work (save
+          message, search context, build prompt), stream tokens,
+          buffer full reply, follow-up _extract_suggestions() for
+          journal/quiz metadata, save assistant message.
+        - Added _EXTRACT_SUGGESTIONS_PROMPT + _extract_suggestions()
+          — lightweight follow-up Gemini call for metadata.
+    • router.py:
+        - Added POST /{session_id}/chat/stream — SSE endpoint.
+        - Event types: token (text chunks), metadata (journal +
+          quiz suggestions), done, error.
+
+
+5. FIX — Redis Client Robustness
+──────────────────────────────────────────────
+  File:    app/db/redis_client.py
+
+  Changes:
+    • Removed dead _SERIALISABLE_TYPES constant (unused).
+    • Fixed _fallback_del to strip trailing "*" before startswith
+      matching — prevents incorrect cache flush.
+    • Fixed _deserialise to return None on JSON parse failure
+      instead of raw string — ensures proper cache-miss behaviour.

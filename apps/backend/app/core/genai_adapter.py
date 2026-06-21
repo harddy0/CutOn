@@ -15,15 +15,17 @@ pulls baseline configuration from environment variables.
   baseline using the spread pattern ``{**baseline, **config}``, so custom
   settings always win.
 
-  The structural path for the thinking constraint is:
-  ``config["thinking_config"]["thinking_level"]`` — a completely lowercase
-  string value that the Google client payload expects.
+Async variants (``generate_text_async`` / ``generate_text_stream_async``)
+use ``asyncio.to_thread()`` to run the synchronous SDK calls on a thread
+pool, preventing the FastAPI event loop from being blocked during
+long-running Gemini API calls.
 
-  Embeddings are **not** handled here — they live in
-  ``app.modules.embeddings.service`` and use a separate model.
+Embeddings are **not** handled here — they live in
+``app.modules.embeddings.service`` and use a separate model.
 """
 
-from typing import Any, Optional
+import asyncio
+from typing import Any, AsyncGenerator, Optional
 
 from google import genai
 
@@ -34,6 +36,7 @@ from app.core.config import settings
 # ---------------------------------------------------------------------------
 
 _client: Optional[genai.Client] = None
+
 
 
 def get_client() -> genai.Client:
@@ -159,6 +162,97 @@ def generate_text(
     )
 
     return response.text.strip() if response.text else ""
+
+
+# ---------------------------------------------------------------------------
+# Async variants — run sync SDK calls on a thread pool so they don't block
+# the FastAPI event loop.  Use these in all async route handlers.
+# ---------------------------------------------------------------------------
+
+
+async def generate_text_async(
+    prompt: str,
+    *,
+    model: Optional[str] = None,
+    config: Optional[dict[str, Any]] = None,
+) -> str:
+    """Non-blocking version of ``generate_text``.
+
+    Runs the synchronous SDK call via ``asyncio.to_thread()`` so the
+    event loop can process other requests while waiting for the Gemini
+    API response.
+
+    Parameters are identical to ``generate_text``.
+    """
+    client = get_client()
+    resolved_model = model or settings.gemini_model
+    baseline = _build_thinking_config()
+    merged_config = {**baseline, **(config or {})}
+
+    def _call() -> str:
+        response = client.models.generate_content(
+            model=resolved_model,
+            contents=prompt,
+            config=merged_config if merged_config else None,  # type: ignore[arg-type]
+        )
+        return response.text.strip() if response.text else ""
+
+    return await asyncio.to_thread(_call)
+
+
+async def generate_text_stream_async(
+    prompt: str,
+    *,
+    model: Optional[str] = None,
+    config: Optional[dict[str, Any]] = None,
+) -> AsyncGenerator[str, None]:
+    """Stream Gemini response tokens asynchronously via Server-Sent Events.
+
+    Each yielded string is a single text token from the model.  Use this
+    with FastAPI's ``StreamingResponse`` to provide a real-time streaming
+    UX to the frontend.
+
+    Parameters are identical to ``generate_text``.
+
+    Yields
+    ------
+    Text tokens from the model response, one per iteration.
+    """
+    client = get_client()
+    resolved_model = model or settings.gemini_model
+    baseline = _build_thinking_config()
+    merged_config = {**baseline, **(config or {})}
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+
+    def _producer() -> None:
+        """Run the sync streaming iterator in a thread, pushing tokens
+        to the asyncio queue as they arrive."""
+        try:
+            response = client.models.generate_content(
+                model=resolved_model,
+                contents=prompt,
+                config=merged_config if merged_config else None,  # type: ignore[arg-type]
+                stream=True,
+            )
+            for chunk in response:
+                if chunk.text:
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk.text)
+        except Exception as exc:
+            loop.call_soon_threadsafe(queue.put_nowait, exc)
+            return
+        loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    loop.run_in_executor(None, _producer)
+
+    while True:
+        chunk = await queue.get()
+        if chunk is None:
+            break  # Stream complete
+        if isinstance(chunk, Exception):
+            raise chunk
+        yield chunk
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 
 from google import genai
@@ -11,6 +12,10 @@ class EmbeddingsService:
     This service has **no public router** — it is designed to be injected into
     other service modules (e.g. journal, document chunks) that need to embed
     text before storing vectors.
+
+    All public methods are **async** — they run the synchronous SDK calls on
+    a thread pool via ``asyncio.to_thread()`` so the FastAPI event loop is
+    never blocked.
     """
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
@@ -33,8 +38,12 @@ class EmbeddingsService:
     # Public API
     # ------------------------------------------------------------------
 
-    def embed_text(self, text: str) -> list[float]:
+    async def embed_text(self, text: str) -> list[float]:
         """Generate an embedding vector for a single text string.
+
+        Runs the synchronous SDK call via ``asyncio.to_thread()`` so the
+        event loop can process other requests while the embedding is
+        computed.
 
         Parameters
         ----------
@@ -46,8 +55,13 @@ class EmbeddingsService:
         A list of floats representing the embedding vector (default 3072
         dimensions for ``gemini-embedding-2-flash``).
         """
-        result = self._client_instance.models.embed_content(
-            model=self._model,
-            contents=text,
-        )
-        return result.embeddings[0].values # type: ignore
+        client = self._client_instance
+
+        def _call() -> list[float]:
+            result = client.models.embed_content(
+                model=self._model,
+                contents=text,
+            )
+            return result.embeddings[0].values  # type: ignore
+
+        return await asyncio.to_thread(_call)
