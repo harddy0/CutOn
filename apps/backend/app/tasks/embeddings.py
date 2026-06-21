@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from bson import ObjectId
@@ -44,7 +45,7 @@ EMBEDDINGS_QUEUE = "embeddings"
     max_retries=settings.celery_max_retries,
     default_retry_delay=settings.celery_retry_backoff_sec,
     retry_backoff=True,       # Exponential backoff (60s, 120s, 240s, …)
-    retry_backoff_max=3600,   # Cap at 1 hour
+    retry_backoff_max=settings.celery_retry_backoff_max_sec,  # Cap at N seconds
     retry_jitter=True,        # Add random jitter to avoid thundering herd
     acks_late=True,           # Re-deliver if worker crashes mid-task
     reject_on_worker_lost=True,
@@ -79,7 +80,7 @@ def generate_journal_embedding(self, entry_id: str) -> None:
     service = _get_embeddings_service()
 
     try:
-        embedding = service.embed_text(doc["content"])
+        embedding = asyncio.run(service.embed_text(doc["content"]))
     except Exception as exc:
         logger.exception(
             "Embedding failed for entry %s (attempt %d/%d) — %s: %s",

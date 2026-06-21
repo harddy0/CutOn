@@ -9,6 +9,7 @@ from bson.errors import InvalidId
 from fastapi import HTTPException
 from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
+from pymongo.asynchronous.cursor import AsyncCursor
 
 from app.core.config import settings
 from app.core.genai_adapter import generate_text_async, get_client, with_thinking
@@ -128,15 +129,21 @@ class QueryService:
         # 2. Embed the topic query
         query_vector = await self._embedder.embed_text(topic_query)
 
-        # 3. Score each topic by cosine similarity
-        best_match: Optional[tuple[float, dict]] = None
+        # 3. Embed all topic names in parallel, then score by cosine similarity
+        topic_texts = []
         for topic in topics:
-            topic_text = topic["name"]
+            text = topic["name"]
             if topic.get("description"):
-                topic_text += " " + topic["description"]
-            topic_vector = await self._embedder.embed_text(topic_text)
-            score = self._cosine_similarity(query_vector, topic_vector)
+                text += " " + topic["description"]
+            topic_texts.append(text)
 
+        topic_vectors = await asyncio.gather(*[
+            self._embedder.embed_text(t) for t in topic_texts
+        ])
+
+        best_match: Optional[tuple[float, dict]] = None
+        for topic, topic_vector in zip(topics, topic_vectors):
+            score = self._cosine_similarity(query_vector, topic_vector)
             if best_match is None or score > best_match[0]:
                 best_match = (score, topic)
 
@@ -157,7 +164,7 @@ class QueryService:
         norm_b = sum(x * x for x in b) ** 0.5
         if norm_a * norm_b == 0:
             return 0.0
-        return dot / (norm_a * norm_b)
+        return dot / (norm_a * norm_b)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ search
 
@@ -203,7 +210,7 @@ class QueryService:
         # 3. Concurrent searches --------------------------------------------
 
         async def _search_chunks() -> list[QueryResultItem]:
-            pipeline = [
+            pipeline: list[dict] = [
                 {
                     "$vectorSearch": {
                         "index": VECTOR_INDEX_CHUNKS,
@@ -235,7 +242,7 @@ class QueryService:
                     }
                 },
             ]
-            cursor = await self._chunks_collection.aggregate(pipeline)
+            cursor = await self._chunks_collection.aggregate(pipeline)  # type: ignore[assignment]
             results: list[QueryResultItem] = []
             async for doc in cursor:
                 results.append(
@@ -255,7 +262,7 @@ class QueryService:
 
         async def _search_journals() -> list[QueryResultItem]:
             # ── Primary: vector search ─────────────────────────────────
-            pipeline = [
+            pipeline: list[dict] = [
                 {
                     "$vectorSearch": {
                         "index": VECTOR_INDEX_JOURNALS,
@@ -275,7 +282,7 @@ class QueryService:
                     }
                 },
             ]
-            cursor = await self._journals_collection.aggregate(pipeline)
+            cursor = await self._journals_collection.aggregate(pipeline)  # type: ignore[assignment]
             seen_ids: set[str] = set()
             results: list[QueryResultItem] = []
             async for doc in cursor:
@@ -302,7 +309,7 @@ class QueryService:
                 if seen_ids:
                     fallback_filter["_id"] = {"$nin": list(seen_ids)}
                 cursor = (
-                    self._journals_collection.find(fallback_filter)
+                    self._journals_collection.find(fallback_filter)  # type: ignore[assignment]
                     .sort("created_at", -1)
                     .limit(missing)
                 )

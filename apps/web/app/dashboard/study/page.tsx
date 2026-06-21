@@ -6,7 +6,7 @@ import {
   createStudySession,
   getStudySession,
   deleteStudySession,
-  chatSendStream,
+  chatSend,
   confirmJournal,
   ApiError,
 } from "@/lib/api";
@@ -50,12 +50,6 @@ function formatDateShort(iso: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Streaming message ID prefix
-// ---------------------------------------------------------------------------
-
-const STREAMING_ID_PREFIX = "streaming-";
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -79,10 +73,6 @@ export default function StudyPage() {
   const [messages, setMessages] = useState<StudyMessageResponse[]>([]);
   const [sessionTitle, setSessionTitle] = useState("");
   const [loadingMessages, setLoadingMessages] = useState(false);
-
-  // ── Streaming ──
-  const [streamingContent, setStreamingContent] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
 
   // ── Mobile sessions panel ──
   const [showMobileSessions, setShowMobileSessions] = useState(false);
@@ -123,10 +113,10 @@ export default function StudyPage() {
 
   // Auto-scroll on messages/streaming change
   useEffect(() => {
-    if (messages.length > 0 || streamingContent) {
+    if (messages.length > 0) {
       scrollToBottom(true);
     }
-  }, [messages.length, streamingContent, scrollToBottom]);
+  }, [messages.length, scrollToBottom]);
 
   // ------------------------------------------------------------------
   // Fetch sessions
@@ -157,8 +147,6 @@ export default function StudyPage() {
     setLoadingMessages(true);
     setError(null);
     setPendingSuggestion(null);
-    setStreamingContent("");
-    setIsStreaming(false);
     try {
       const data = await getStudySession(sessionId);
       setMessages(data.messages);
@@ -207,12 +195,13 @@ export default function StudyPage() {
   }, [activeSessionId]);
 
   // ------------------------------------------------------------------
-  // Send chat message (STREAMING)
-  // ------------------------------------------------------------------
+    // ---------------------------------------------------------------------------
+  // Send chat message
+  // ---------------------------------------------------------------------------
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || !activeSessionId || isStreaming) return;
+    if (!text || !activeSessionId || sending) return;
 
     setInput("");
     setSending(true);
@@ -230,61 +219,26 @@ export default function StudyPage() {
     };
     setMessages((prev) => [...prev, tempUserMsg]);
 
-    // Placeholder streaming assistant message
-    const streamMsgId = `${STREAMING_ID_PREFIX}${Date.now()}`;
-    setStreamingContent("");
-    setIsStreaming(true);
-
-    let accumulated = "";
-    let suggestions: { journal?: JournalSuggestion; quiz?: QuizSuggestion } | null = null;
-
     try {
-      const abortController = new AbortController();
+      const response = await chatSend(activeSessionId, { message: text });
 
-      for await (const event of chatSendStream(activeSessionId, { message: text }, abortController.signal)) {
-        if (event.event === "token") {
-          accumulated += event.data;
-          setStreamingContent(accumulated);
-        } else if (event.event === "metadata") {
-          try {
-            const parsed = JSON.parse(event.data);
-            suggestions = {
-              journal: parsed.journal_suggestion ?? undefined,
-              quiz: parsed.quiz_suggestion ?? undefined,
-            };
-          } catch {
-            // ignore malformed metadata
-          }
-        } else if (event.event === "error") {
-          try {
-            const parsed = JSON.parse(event.data);
-            throw new Error(parsed.detail ?? parsed.message ?? "Stream error");
-          } catch {
-            throw new Error("Stream error");
-          }
-        }
-        // 'done' event — stream finished naturally
-      }
-
-      // Finalize: add the complete assistant message
+      // Add the assistant message
       const assistantMsg: StudyMessageResponse = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
-        content: accumulated,
+        content: response.reply,
         metadata: {},
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
-      setStreamingContent("");
-      setIsStreaming(false);
 
       // Show suggestions if any
-      if (suggestions && (suggestions.journal || suggestions.quiz)) {
+      if (response.journal_suggestion || response.quiz_suggestion) {
         setPendingSuggestion({
-          journal: suggestions.journal
-            ? { ...suggestions.journal, sessionId: activeSessionId }
+          journal: response.journal_suggestion
+            ? { ...response.journal_suggestion, sessionId: activeSessionId }
             : undefined,
-          quiz: suggestions.quiz ?? undefined,
+          quiz: response.quiz_suggestion ?? undefined,
         });
       }
 
@@ -297,17 +251,13 @@ export default function StudyPage() {
       }
     } catch (err: unknown) {
       setError(extractErrorMessage(err));
-      setStreamingContent("");
-      setIsStreaming(false);
       // Remove optimistic user message on error
       setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
     } finally {
       setSending(false);
     }
-  }, [input, activeSessionId, sessionTitle, isStreaming]);
-
-  // ------------------------------------------------------------------
-  // Enter to send
+  }, [input, activeSessionId, sessionTitle, sending]);
+// Enter to send
   // ------------------------------------------------------------------
 
   const handleKeyDown = useCallback(
@@ -324,20 +274,7 @@ export default function StudyPage() {
   // Messages are the real messages + the streaming placeholder if active
   // ------------------------------------------------------------------
 
-  const allMessages = [
-    ...messages,
-    ...(streamingContent
-      ? [
-          {
-            id: `${STREAMING_ID_PREFIX}current`,
-            role: "assistant" as const,
-            content: streamingContent,
-            metadata: {} as Record<string, unknown>,
-            created_at: new Date().toISOString(),
-          } as StudyMessageResponse,
-        ]
-      : []),
-  ];
+  const allMessages = messages;
 
   // ------------------------------------------------------------------
   // Render
@@ -554,7 +491,6 @@ export default function StudyPage() {
                   </div>
                 ) : (
                   allMessages.map((msg, idx) => {
-                    const isStreaming = msg.id.startsWith(STREAMING_ID_PREFIX);
                     const isUser = msg.role === "user";
                     return (
                       <div key={msg.id} className={`flex ${isUser ? "justify-end" : "justify-start"} animate-fade-up`} style={{ animationDelay: `${idx * 50}ms` }}>
@@ -562,23 +498,17 @@ export default function StudyPage() {
                           isUser
                             ? "bg-gradient-to-br from-blue-start to-blue-end shadow-hard"
                             : "bg-gradient-to-br from-green-start to-green-end shadow-soft"
-                        } ${isStreaming ? "animate-pulse-glow" : ""}`}>
+                        }`}>
                           <div className="flex items-center gap-2 mb-2">
                             <span className={`text-[11px] font-mono font-bold uppercase tracking-wider ${isUser ? "text-blue-accent" : "text-green-accent"}`}>
                               {isUser ? "You" : "Study Buddy"}
                             </span>
                             <span className="text-[10px] font-mono text-ink-muted/40">{formatTime(msg.created_at)}</span>
-                            {isStreaming && (
-                              <span className="flex items-center gap-0.5 ml-auto">
-                                <span className="w-1 h-1 rounded-full bg-green-accent animate-bounce border border-ink" style={{ animationDelay: "0ms" }} />
-                                <span className="w-1 h-1 rounded-full bg-green-accent animate-bounce border border-ink" style={{ animationDelay: "150ms" }} />
-                                <span className="w-1 h-1 rounded-full bg-green-accent animate-bounce border border-ink" style={{ animationDelay: "300ms" }} />
-                              </span>
-                            )}
+
                           </div>
                           <p className="text-sm md:text-base font-medium text-ink/85 leading-relaxed md:leading-[1.7] whitespace-pre-wrap" style={{ wordBreak: "break-word" }}>
                             {msg.content}
-                            {isStreaming && <span className="inline-block w-1.5 h-4 bg-green-accent/60 ml-0.5 animate-pulse align-text-bottom" />}
+
                           </p>
                         </div>
                       </div>
@@ -636,7 +566,7 @@ export default function StudyPage() {
                 )}
 
                 {/* ── Typing indicator (fallback if not streaming) ── */}
-                {sending && !streamingContent && (
+                {sending && (
                   <div className="flex justify-start animate-fade-up">
                     <div className="rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end px-4 py-3 shadow-soft">
                       <div className="flex items-center gap-1.5">
@@ -665,10 +595,10 @@ export default function StudyPage() {
               <div className="shrink-0 border-t-2 border-ink px-4 md:px-6 py-3 md:py-4 bg-gradient-to-t from-canvas via-canvas to-transparent">
                 <div className="flex items-end gap-3">
                   <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                    placeholder="Ask your Study Buddy anything…" rows={1} disabled={isStreaming}
+                    placeholder="Ask your Study Buddy anything…" rows={1} disabled={sending}
                     className="flex-1 min-h-[52px] max-h-[160px] px-4 md:px-5 py-3.5 bg-surface border-2 border-ink rounded-[4px] text-sm md:text-base font-medium text-ink placeholder:text-ink-muted/40 focus:outline-none focus:ring-2 focus:ring-green-accent/40 transition-all resize-none disabled:opacity-40"
                   />
-                  <button onClick={handleSend} disabled={isStreaming || !input.trim() || !activeSessionId}
+                  <button onClick={handleSend} disabled={sending || !input.trim() || !activeSessionId}
                     className="shrink-0 h-[52px] w-[52px] flex items-center justify-center rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start to-green-end text-ink shadow-hard hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-hard-hover active:translate-x-[1px] active:translate-y-[1px] active:shadow-hard-active transition-all duration-100 disabled:opacity-40 disabled:pointer-events-none"
                     title="Send message"
                   >

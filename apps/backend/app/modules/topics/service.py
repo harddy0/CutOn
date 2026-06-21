@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -81,8 +81,8 @@ class TopicsService:
             "user_id": ObjectId(user_id),
             "name": payload.name,
             "description": payload.description,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
         }
 
         result = await collection.insert_one(doc)
@@ -115,7 +115,7 @@ class TopicsService:
             assert doc is not None, "Topic existence confirmed by _assert_owner above"
             return self._format_topic(doc)
 
-        set_fields["updated_at"] = datetime.utcnow()
+        set_fields["updated_at"] = datetime.now(timezone.utc)
 
         result = await collection.find_one_and_update(
             {"_id": ObjectId(topic_id)},

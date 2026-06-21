@@ -1,8 +1,9 @@
+import asyncio
 import json
 import logging
 import math
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
@@ -304,15 +305,21 @@ class QuizzesService:
         # 2. Embed the query
         query_vector = await self._embedder.embed_text(query)
 
-        # 3. Score each topic by cosine similarity
-        best_match: Optional[tuple[float, dict]] = None
+        # 3. Embed all topic names in parallel, then score by cosine similarity
+        topic_texts = []
         for topic in topics:
-            topic_text = topic["name"]
+            text = topic["name"]
             if topic.get("description"):
-                topic_text += " " + topic["description"]
-            topic_vector = await self._embedder.embed_text(topic_text)
-            score = _cosine_similarity(query_vector, topic_vector)
+                text += " " + topic["description"]
+            topic_texts.append(text)
 
+        topic_vectors = await asyncio.gather(*[
+            self._embedder.embed_text(t) for t in topic_texts
+        ])
+
+        best_match: Optional[tuple[float, dict]] = None
+        for topic, topic_vector in zip(topics, topic_vectors):
+            score = _cosine_similarity(query_vector, topic_vector)
             if best_match is None or score > best_match[0]:
                 best_match = (score, topic)
 
@@ -533,7 +540,7 @@ class QuizzesService:
                 num_questions,
             )
 
-        return quiz_data
+        return quiz_data  # type: ignore[no-any-return]
 
     # ══════════════════════════════════════════════════════════════════
     # Quiz response builder (shared between modes)
@@ -736,7 +743,7 @@ class QuizzesService:
         has_journal_data: bool,
     ) -> QuizResponse:
         """Persist the generated quiz to MongoDB and return the API response."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         title = quiz_data.get("title", f"Quiz — {topic_id}")
 
         questions_response = self._build_questions_response(quiz_data)
@@ -868,7 +875,7 @@ class QuizzesService:
                     generated_at=doc.get("generated_at", doc["_id"].generation_time),
                     blind_spot_count=doc.get("blind_spot_count", 0),
                     has_journal_data=doc.get("has_journal_data", True),
-                    created_at=doc.get("generated_at", datetime.utcnow()),
+                    created_at=doc.get("generated_at", datetime.now(timezone.utc)),
                 )
             )
         return results
@@ -903,11 +910,11 @@ class QuizzesService:
             topic_id=str(doc["topic_id"]),
             title=doc.get("title", ""),
             mode=doc.get("mode", "blind_spot"),
-            generated_at=doc.get("generated_at", datetime.utcnow()),
+            generated_at=doc.get("generated_at", datetime.now(timezone.utc)),
             questions=questions_response,
             blind_spot_count=doc.get("blind_spot_count", 0),
             has_journal_data=doc.get("has_journal_data", True),
-            created_at=doc.get("generated_at", datetime.utcnow()),
+            created_at=doc.get("generated_at", datetime.now(timezone.utc)),
         )
 
     # ══════════════════════════════════════════════════════════════════
@@ -963,7 +970,7 @@ class QuizzesService:
             )
 
         passed = (total_score / max_score * 100) >= PASS_THRESHOLD_PCT if max_score > 0 else False
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Persist attempt
         attempt_doc = {
@@ -1048,7 +1055,7 @@ class QuizzesService:
                     max_score=max_score,
                     passed=passed,
                     answers=graded,
-                    completed_at=doc.get("completed_at", datetime.utcnow()),
+                    completed_at=doc.get("completed_at", datetime.now(timezone.utc)),
                 )
             )
         return results

@@ -59,3 +59,23 @@ async def require_admin(
             detail="Admin access required",
         )
     return current_user
+
+
+async def require_admin_or_own_user(
+    user_id: str,
+    current_user: UserResponse = Depends(require_user),
+) -> UserResponse:
+    """Allow access if the user is either:
+
+    * The owner of the resource (``current_user.id == user_id``), **or**
+    * An admin (``current_user.role == "admin"``)
+
+    This enables admins to manage any user's account while preserving
+    self-service for regular users.
+    """
+    if current_user.id != user_id and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You can only perform this action on your own account",
+        )
+    return current_user

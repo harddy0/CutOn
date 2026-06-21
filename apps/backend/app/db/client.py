@@ -25,6 +25,7 @@ class DatabaseClient:
     rag_evaluations: Optional[AsyncCollection] = None
     notifications: Optional[AsyncCollection] = None
     audit_logs: Optional[AsyncCollection] = None
+    password_reset_tokens: Optional[AsyncCollection] = None
 
     # ── Index definitions ────────────────────────────────────────────
     # create_index is idempotent — only creates indexes that don't exist.
@@ -92,6 +93,11 @@ class DatabaseClient:
             ([("action", 1)], {"name": "idx_audit_action"}),
             ([("created_at", -1)], {"name": "idx_audit_created_at"}),
         ],
+        "password_reset_tokens": [
+            ([("token_hash", 1)], {"unique": True, "name": "uq_reset_token_hash"}),
+            ([("user_id", 1)], {"name": "idx_reset_token_user_id"}),
+            ([("expires_at", 1)], {"name": "idx_reset_token_expires", "expireAfterSeconds": 0}),
+        ],
     }
 
     @classmethod
@@ -113,6 +119,7 @@ class DatabaseClient:
         cls.rag_evaluations = cls._db.get_collection("rag_evaluations")
         cls.notifications = cls._db.get_collection("notifications")
         cls.audit_logs = cls._db.get_collection("audit_logs")
+        cls.password_reset_tokens = cls._db.get_collection("password_reset_tokens")
 
     @classmethod
     async def close(cls) -> None:
@@ -133,6 +140,7 @@ class DatabaseClient:
             cls.rag_evaluations = None
             cls.notifications = None
             cls.audit_logs = None
+            cls.password_reset_tokens = None
 
     @classmethod
     def get_db(cls) -> AsyncDatabase:

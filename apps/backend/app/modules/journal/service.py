@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -90,7 +90,7 @@ class JournalEntriesService:
         check when the embedding is ``COMPLETED``.
         """
         collection = self._journal_collection
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         try:
             topic_oid = ObjectId(payload.topic_id)
@@ -159,7 +159,7 @@ class JournalEntriesService:
             assert doc is not None, "Entry existence confirmed by _assert_owner above"
             return self._format_entry(doc)
 
-        set_fields["updated_at"] = datetime.utcnow()
+        set_fields["updated_at"] = datetime.now(timezone.utc)
 
         result = await collection.find_one_and_update(
             {"_id": ObjectId(entry_id)},

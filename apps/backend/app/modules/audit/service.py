@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from bson import ObjectId
@@ -85,7 +85,7 @@ class AuditService:
             "resource_type": resource_type,
             "resource_id": ObjectId(resource_id),
             "metadata": metadata or {},
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         }
         await coll.insert_one(doc)
 

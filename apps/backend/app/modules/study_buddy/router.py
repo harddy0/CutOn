@@ -1,11 +1,10 @@
-import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Request
 
 from app.db.client import DatabaseClient
 from app.modules.auth.deps import require_user
+from app.modules.auth.limiter import limiter
 from app.modules.study_buddy.dto import (
     ChatRequest,
     ChatResponse,
@@ -43,7 +42,9 @@ async def create_session(
 
 
 @router.post("/{session_id}/chat", response_model=ChatResponse)
+@limiter.limit("20/minute")
 async def chat(
+    request: Request,
     session_id: str,
     payload: ChatRequest,
     service: StudyBuddyService = Depends(get_study_buddy_service),
@@ -64,53 +65,7 @@ async def chat(
     return await service.chat(session_id, current_user.id, payload)
 
 
-@router.post("/{session_id}/chat/stream")
-async def chat_stream(
-    session_id: str,
-    payload: ChatRequest,
-    service: StudyBuddyService = Depends(get_study_buddy_service),
-    current_user: UserResponse = Depends(require_user),
-):
-    """Send a message to the Study Buddy and stream the reply via SSE.
 
-    Same logic as ``POST /{session_id}/chat`` but the response is returned
-    as a **Server-Sent Events** stream so the frontend can display tokens
-    incrementally as they arrive from Gemini.
-
-    **SSE Event Types**
-    * ``token`` — a single text chunk from the model.
-    * ``metadata`` — JSON payload with the final reply text, journal
-      suggestion, and quiz suggestion.
-    * ``error`` — an error occurred during streaming.
-    """
-    async def event_stream():
-        try:
-            async for token, metadata in service.chat_stream(
-                session_id, current_user.id, payload
-            ):
-                if token is not None:
-                    yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
-                elif metadata is not None:
-                    # Final metadata event — includes journal/quiz suggestions
-                    meta = {
-                        "type": "metadata",
-                        "journal_suggestion": (
-                            metadata["journal_suggestion"].model_dump()
-                            if metadata.get("journal_suggestion")
-                            else None
-                        ),
-                        "quiz_suggestion": (
-                            metadata["quiz_suggestion"].model_dump()
-                            if metadata.get("quiz_suggestion")
-                            else None
-                        ),
-                    }
-                    yield f"data: {json.dumps(meta)}\n\n"
-                    yield "data: {\"type\": \"done\"}\n\n"
-        except Exception as exc:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post(

@@ -46,11 +46,19 @@ class Settings(BaseSettings):
     redis_username: Optional[str] = Field(default=None, validation_alias="REDIS_USERNAME")
     redis_db: int = Field(default=0, validation_alias="REDIS_DB")
     redis_ssl: bool = Field(default=False, validation_alias="REDIS_SSL")
+    redis_max_connections: int = Field(default=10, validation_alias="REDIS_MAX_CONNECTIONS")
+    redis_socket_timeout_sec: int = Field(default=2, validation_alias="REDIS_SOCKET_TIMEOUT_SEC")
+    redis_socket_connect_timeout_sec: int = Field(
+        default=2, validation_alias="REDIS_SOCKET_CONNECT_TIMEOUT_SEC"
+    )
 
     # ── Celery ───────────────────────────────────────────────────────────
     celery_max_retries: int = Field(default=5, validation_alias="CELERY_MAX_RETRIES")
     celery_retry_backoff_sec: int = Field(
         default=60, validation_alias="CELERY_RETRY_BACKOFF_SEC"
+    )
+    celery_retry_backoff_max_sec: int = Field(
+        default=3600, validation_alias="CELERY_RETRY_BACKOFF_MAX_SEC"
     )
 
     # ── File Upload ──────────────────────────────────────────────────────
@@ -67,6 +75,43 @@ class Settings(BaseSettings):
     )
     chunk_overlap: int = Field(
         default=200, validation_alias="CHUNK_OVERLAP"  # Overlap chars between chunks
+    )
+
+    # ── Brevo (Transactional Email) ────────────────────────────────
+    brevo_api_key: str = Field(default="", validation_alias="BREVO_API_KEY")
+    email_from_address: str = Field(
+        default="noreply@cuton.app", validation_alias="EMAIL_FROM_ADDRESS"
+    )
+    email_from_name: str = Field(default="CutOn", validation_alias="EMAIL_FROM_NAME")
+
+    # ── Password Reset ──────────────────────────────────────────────
+    reset_token_expire_minutes: int = Field(
+        default=60, validation_alias="RESET_TOKEN_EXPIRE_MINUTES"
+    )
+    frontend_url: str = Field(
+        default="http://localhost:5173", validation_alias="FRONTEND_URL"
+    )
+
+    # ── Rate Limiting ──────────────────────────────────────────────────
+    rate_limit_retry_after_sec: int = Field(
+        default=60, validation_alias="RATE_LIMIT_RETRY_AFTER_SEC"
+    )
+
+    # ── Dashboard Cache TTLs (seconds per category) ────────────────
+    cache_ttl_summary_sec: int = Field(
+        default=30, validation_alias="CACHE_TTL_SUMMARY_SEC"
+    )
+    cache_ttl_learning_sec: int = Field(
+        default=60, validation_alias="CACHE_TTL_LEARNING_SEC"
+    )
+    cache_ttl_quiz_sec: int = Field(
+        default=300, validation_alias="CACHE_TTL_QUIZ_SEC"
+    )
+    cache_ttl_rag_sec: int = Field(
+        default=300, validation_alias="CACHE_TTL_RAG_SEC"
+    )
+    cache_ttl_activity_sec: int = Field(
+        default=30, validation_alias="CACHE_TTL_ACTIVITY_SEC"
     )
 
     # CORS

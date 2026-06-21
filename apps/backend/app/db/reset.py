@@ -3,17 +3,22 @@ Database reset — clears all data, seeds sample records, and creates indexes.
 
 This script:
 - Drops every collection in the target database.
-- Seeds a test user, topic, source document with chunks, and journal entry
-  (all with **real embeddings** via the Gemini Embedding API).
+- Seeds an admin user, a test user, topic, source document with chunks, and
+  journal entry (all with **real embeddings** via the Gemini Embedding API).
 - Creates all regular MongoDB application indexes.
 
-After this, you must create Atlas ``$vectorSearch`` indexes **manually**
+Pass ``--clear-only`` (after ``--``) to only drop collections without seeding::
+
+    python -m app.db.reset -- --clear-only
+
+After seeding, you must create Atlas ``$vectorSearch`` indexes **manually**
 via the Atlas UI (not possible programmatically on M0 free tier).
 See ``docs/INDEXES.md`` for the exact JSON definitions to paste.
 
 Usage
 -----
-    python -m app.db.reset
+    python -m app.db.reset              # Full reset + seed
+    python -m app.db.reset -- --clear-only  # Drop only, no seed
 
 Requirements
 ------------
@@ -25,8 +30,10 @@ Requirements
 import asyncio
 import hashlib
 import logging
-from datetime import datetime
+import sys
+from datetime import datetime, timezone
 
+from bson import ObjectId
 from pymongo import AsyncMongoClient
 
 from app.core.config import settings
@@ -36,13 +43,25 @@ from app.modules.embeddings.service import EmbeddingsService
 
 logger = logging.getLogger("app.db.reset")
 
-# ── Seed data ──────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Seed data
+# ---------------------------------------------------------------------------
 
-SEED_USER = {
-    "email": "test@cuton.app",
-    "password": "TestPassword123!",
-    "first_name": "Test",
-    "last_name": "User",
+SEED_USERS = {
+    "admin": {
+        "email": "admin@cuton.app",
+        "password": "AdminPassword123!",
+        "first_name": "Admin",
+        "last_name": "User",
+        "role": "admin",
+    },
+    "user": {
+        "email": "test@cuton.app",
+        "password": "TestPassword123!",
+        "first_name": "Test",
+        "last_name": "User",
+        "role": "user",
+    },
 }
 
 SEED_TOPIC = {
@@ -88,7 +107,10 @@ SEED_JOURNAL = (
 )
 
 
-# ── Helpers ────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate (≈4 chars per token)."""
@@ -100,9 +122,62 @@ def _chunk_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-# ── Main reset logic ───────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Core logic
+# ---------------------------------------------------------------------------
+
+
+async def _drop_all_collections(db, db_name: str) -> None:
+    """Drop every collection in the database."""
+    logger.info("Dropping all collections in '%s'…", db_name)
+    collections = await db.list_collection_names()
+    for name in collections:
+        await db[name].drop()
+        logger.info("  ✓ Dropped: %s", name)
+    logger.info("All collections cleared.\n")
+
+
+async def _seed_users(db, now: datetime) -> dict[str, tuple[ObjectId, dict]]:
+    """Seed admin + regular users, return dict of {key: (id, doc)}."""
+    results = {}
+    for key, info in SEED_USERS.items():
+        logger.info("Seeding %s user: %s", key, info["email"])
+        doc = {
+            "email": info["email"],
+            "first_name": info["first_name"],
+            "last_name": info["last_name"],
+            "password_hash": hash_password(info["password"]),
+            "role": info["role"],
+            "is_active": True,
+            "preferences": {"email_notifications": True},
+            "created_at": now,
+            "last_login": None,
+        }
+        result = await db["users"].insert_one(doc)
+        results[key] = (result.inserted_id, doc)
+        logger.info("  ✓ %s user ID: %s\n", key.capitalize(), result.inserted_id)
+    return results
+
+
+async def clear_only() -> None:
+    """Drop all collections without seeding any data."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    conn_str = settings.mongo_uri
+    db_name = settings.mongo_db_name
+    logger.info("Connecting to MongoDB: %s/%s", conn_str, db_name)
+    client: AsyncMongoClient = AsyncMongoClient(conn_str)
+    db = client[db_name]
+    await _drop_all_collections(db, db_name)
+    logger.info("Database is now empty.")
+    await client.close()
+
 
 async def reset() -> None:
+    """Full reset: drop all data, seed sample records, create indexes."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -113,74 +188,60 @@ async def reset() -> None:
     db_name = settings.mongo_db_name
 
     logger.info("Connecting to MongoDB: %s/%s", conn_str, db_name)
-    client = AsyncMongoClient(conn_str)
+    client: AsyncMongoClient = AsyncMongoClient(conn_str)
     db = client[db_name]
 
-    # ── 1. Drop all collections (clear data) ──────────────────────────
-    logger.info("Dropping all collections in '%s'…", db_name)
-    collections = await db.list_collection_names()
-    for name in collections:
-        await db[name].drop()
-        logger.info("  ✓ Dropped: %s", name)
-    logger.info("All collections cleared.\n")
+    # ── 1. Drop all collections ───────────────────────────────────────
+    await _drop_all_collections(db, db_name)
 
-    # ── 2. Seed user ──────────────────────────────────────────────────
-    logger.info("Seeding user: %s", SEED_USER["email"])
-    now = datetime.utcnow()
-    user_doc = {
-        "email": SEED_USER["email"],
-        "first_name": SEED_USER["first_name"],
-        "last_name": SEED_USER["last_name"],
-        "password_hash": hash_password(SEED_USER["password"]),
-        "role": "user",
-        "is_active": True,
-        "preferences": {"email_notifications": True},
-        "created_at": now,
-        "last_login": None,
-    }
-    result = await db["users"].insert_one(user_doc)
-    user_id = result.inserted_id
-    logger.info("  ✓ User ID: %s\n", user_id)
+    now = datetime.now(timezone.utc)
+
+    # ── 2. Seed users ─────────────────────────────────────────────────
+    users = await _seed_users(db, now)
+    user_id = users["user"][0]
+    admin_id = users["admin"][0]
 
     # ── 3. Seed topic ─────────────────────────────────────────────────
     logger.info("Seeding topic: %s", SEED_TOPIC["name"])
-    topic_doc = {
-        "user_id": user_id,
-        "name": SEED_TOPIC["name"],
-        "description": SEED_TOPIC["description"],
-        "created_at": now,
-        "updated_at": now,
-    }
-    result = await db["topics"].insert_one(topic_doc)
-    topic_id = result.inserted_id
+    topic_result = await db["topics"].insert_one(
+        {
+            "user_id": user_id,
+            "name": SEED_TOPIC["name"],
+            "description": SEED_TOPIC["description"],
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    topic_id = topic_result.inserted_id
     logger.info("  ✓ Topic ID: %s\n", topic_id)
 
     # ── 4. Seed source document ───────────────────────────────────────
     logger.info("Seeding source document (%d chunks)…", len(SEED_CHUNKS))
-    source_doc = {
-        "user_id": user_id,
-        "topic_id": topic_id,
-        "original_filename": "react-state-management-guide.pdf",
-        "file_type": "pdf",
-        "file_size": 45200,
-        "filename": "react-state-management-guide.pdf",
-        "file_hash": _chunk_hash("seed_demo_source"),
-        "total_chunks": len(SEED_CHUNKS),
-        "chunking_status": "COMPLETED",
-        "ingested_at": now,
-    }
-    result = await db["sources"].insert_one(source_doc)
-    source_id = result.inserted_id
+    source_result = await db["sources"].insert_one(
+        {
+            "user_id": user_id,
+            "topic_id": topic_id,
+            "original_filename": "react-state-management-guide.pdf",
+            "file_type": "pdf",
+            "file_size": 45200,
+            "filename": "react-state-management-guide.pdf",
+            "file_hash": _chunk_hash("seed_demo_source"),
+            "total_chunks": len(SEED_CHUNKS),
+            "chunking_status": "COMPLETED",
+            "ingested_at": now,
+        }
+    )
+    source_id = source_result.inserted_id
     logger.info("  ✓ Source ID: %s\n", source_id)
 
-    # ── 5. Generate embeddings & seed chunks ──────────────────────────
+    # ── 5. Generate embeddings & seed chunks ─────────────────────────
     logger.info("Initialising EmbeddingsService (Gemini API)…")
     embedder = EmbeddingsService()
 
     chunk_docs = []
     for i, text in enumerate(SEED_CHUNKS):
         logger.info("  Generating embedding for chunk %d/%d…", i + 1, len(SEED_CHUNKS))
-        embedding = embedder.embed_text(text)
+        embedding = await embedder.embed_text(text)
         chunk_docs.append(
             {
                 "user_id": user_id,
@@ -211,23 +272,24 @@ async def reset() -> None:
     # ── 6. Seed journal entry ─────────────────────────────────────────
     logger.info("Seeding journal entry…")
     logger.info("  Generating embedding…")
-    journal_embedding = embedder.embed_text(SEED_JOURNAL)
-    journal_doc = {
-        "user_id": user_id,
-        "topic_id": topic_id,
-        "content": SEED_JOURNAL,
-        "embedding": journal_embedding,
-        "embedding_model": settings.embedding_model,
-        "embedding_status": "COMPLETED",
-        "retry_count": 0,
-        "last_error": None,
-        "start_char": None,
-        "end_char": None,
-        "created_at": now,
-        "updated_at": now,
-    }
-    result = await db["journal_entries"].insert_one(journal_doc)
-    logger.info("  ✓ Journal entry ID: %s\n", result.inserted_id)
+    journal_embedding = await embedder.embed_text(SEED_JOURNAL)
+    journal_result = await db["journal_entries"].insert_one(
+        {
+            "user_id": user_id,
+            "topic_id": topic_id,
+            "content": SEED_JOURNAL,
+            "embedding": journal_embedding,
+            "embedding_model": settings.embedding_model,
+            "embedding_status": "COMPLETED",
+            "retry_count": 0,
+            "last_error": None,
+            "start_char": None,
+            "end_char": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+    logger.info("  ✓ Journal entry ID: %s\n", journal_result.inserted_id)
 
     # ── 7. Create regular MongoDB indexes ─────────────────────────────
     logger.info("Creating regular MongoDB indexes…")
@@ -243,13 +305,16 @@ async def reset() -> None:
     logger.info("═" * 52)
     logger.info("  Database:  %s", db_name)
     logger.info("  Collections created: %s", await db.list_collection_names())
-    logger.info("  User:      %s  (id: %s)", SEED_USER["email"], user_id)
-    logger.info("  Topic:     %s  (id: %s)", SEED_TOPIC["name"], topic_id)
-    logger.info("  Source:    %s  (id: %s)", source_doc["original_filename"], source_id)
-    logger.info("  Chunks:    %d  (all with embeddings)", len(chunk_docs))
-    logger.info("  Journal:   %d entry  (with embedding)", 1)
+    logger.info("  Admin user:   %s  (id: %s)", SEED_USERS["admin"]["email"], admin_id)
+    logger.info("  Regular user: %s  (id: %s)", SEED_USERS["user"]["email"], user_id)
+    logger.info("  Topic:        %s  (id: %s)", SEED_TOPIC["name"], topic_id)
+    logger.info("  Source:       %s  (id: %s)", "react-state-management-guide.pdf", source_id)
+    logger.info("  Chunks:       %d  (all with embeddings)", len(chunk_docs))
+    logger.info("  Journal:      1 entry  (with embedding)")
     logger.info("")
-    logger.info("  Password:  %s", SEED_USER["password"])
+    logger.info("  Passwords:")
+    logger.info("    Admin:  %s", SEED_USERS["admin"]["password"])
+    logger.info("    User:   %s", SEED_USERS["user"]["password"])
     logger.info("")
     logger.info("  Next step: create Atlas $vectorSearch indexes manually via the UI")
     logger.info("  See docs/INDEXES.md for the JSON definitions to paste.")
@@ -259,7 +324,11 @@ async def reset() -> None:
 
 
 def main() -> None:
-    asyncio.run(reset())
+    """Entry point. Pass ``--clear-only`` to skip seeding."""
+    if "--clear-only" in sys.argv:
+        asyncio.run(clear_only())
+    else:
+        asyncio.run(reset())
 
 
 if __name__ == "__main__":

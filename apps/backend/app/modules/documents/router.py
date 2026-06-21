@@ -1,10 +1,11 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, Request, UploadFile, File, Form
 
 from app.core.dto import PaginatedResponse
 from app.db.client import DatabaseClient
 from app.modules.auth.deps import require_user
+from app.modules.auth.limiter import limiter
 from app.modules.documents.dto import (
     ChunkingProgressResponse,
     DocumentChunkResponse,
@@ -21,7 +22,9 @@ def get_documents_service() -> DocumentsService:
 
 
 @router.post("/upload", response_model=SourceResponse, status_code=202)
+@limiter.limit("10/minute")
 async def upload_document(
+    request: Request,
     topic_id: str = Form(...),
     file: UploadFile = File(...),
     service: DocumentsService = Depends(get_documents_service),

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Annotated, Optional
 
 from bson import ObjectId
@@ -41,7 +41,7 @@ class UserDocument(BaseDocument):
     role: str = "user"  # "user" | "admin"
     is_active: bool = True
     preferences: UserPreferences = Field(default_factory=UserPreferences)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login: Optional[datetime] = None
 
 
@@ -49,8 +49,8 @@ class TopicDocument(BaseDocument):
     user_id: MongoObjectId
     name: str
     description: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SourceDocument(BaseDocument):
@@ -63,7 +63,7 @@ class SourceDocument(BaseDocument):
     file_hash: str
     total_chunks: int
     chunking_status: str = "PENDING"  # PENDING → PROCESSING → COMPLETED | FAILED
-    ingested_at: datetime = Field(default_factory=datetime.utcnow)
+    ingested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ChunkMetadata(BaseModel):
@@ -95,7 +95,7 @@ class DocumentChunkDocument(BaseDocument):
     start_char: Optional[int] = None  # Character offset in the source document
     end_char: Optional[int] = None    # Exclusive character offset
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class JournalEntryDocument(BaseDocument):
@@ -115,8 +115,8 @@ class JournalEntryDocument(BaseDocument):
     start_char: Optional[int] = None  # Character offset in the source (if sourced)
     end_char: Optional[int] = None    # Exclusive character offset
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class QuizOption(BaseModel):
@@ -140,7 +140,7 @@ class QuizDocument(BaseDocument):
     topic_id: MongoObjectId
     title: str
     mode: str = "blind_spot"  # "blind_spot" | "topic_review"
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     questions: list[QuizQuestion]
 
 
@@ -156,7 +156,7 @@ class QuizAttemptDocument(BaseDocument):
     topic_id: MongoObjectId
     score: int
     max_score: int
-    completed_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     answers: list[QuizAnswer]
 
 
@@ -167,7 +167,7 @@ class NotificationDocument(BaseDocument):
     message: str
     is_read: bool = False
     action_url: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class StudySessionDocument(BaseDocument):
@@ -177,8 +177,8 @@ class StudySessionDocument(BaseDocument):
     status: str = "active"  # "active" | "ended"
     message_count: int = 0
     journal_count: int = 0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class StudyMessageDocument(BaseDocument):
@@ -186,7 +186,7 @@ class StudyMessageDocument(BaseDocument):
     role: str  # "user" | "assistant"
     content: str
     metadata: dict = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class RAGEvaluationDocument(BaseDocument):
@@ -200,7 +200,21 @@ class RAGEvaluationDocument(BaseDocument):
     user_rating: Optional[int] = None  # 1 (up) | -1 (down) | None
     user_feedback: Optional[str] = None
     faithfulness_score: Optional[float] = None  # 0.0-1.0 (LLM-as-judge)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PasswordResetTokenDocument(BaseDocument):
+    """Stores hashed password reset tokens with expiry.
+
+    The raw token is sent to the user via email; only the SHA-256
+    hash is persisted.  A TTL index on ``expires_at`` automatically
+    cleans up expired documents.
+    """
+    user_id: MongoObjectId
+    token_hash: str  # SHA-256 hex digest of the raw token
+    expires_at: datetime
+    used: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AuditLogDocument(BaseDocument):
@@ -209,4 +223,4 @@ class AuditLogDocument(BaseDocument):
     resource_type: str
     resource_id: MongoObjectId
     metadata: dict[str, Any]
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

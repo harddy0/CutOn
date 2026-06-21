@@ -9,6 +9,11 @@ export type {
 } from "./auth";
 
 export type {
+  CreateUserRequest,
+  UpdateUserRequest,
+} from "./users";
+
+export type {
   TopicResponse,
   CreateTopicRequest,
   UpdateTopicRequest,

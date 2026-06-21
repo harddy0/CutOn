@@ -1,7 +1,7 @@
 import hashlib
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -199,7 +199,7 @@ class DocumentsService:
                 )
 
             # 7. Create SourceDocument
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             source_doc = {
                 "user_id": ObjectId(user_id),
                 "topic_id": topic_oid,

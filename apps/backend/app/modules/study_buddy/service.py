@@ -1,6 +1,7 @@
+import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
@@ -12,7 +13,6 @@ from pymongo.asynchronous.collection import AsyncCollection
 from app.core.config import settings
 from app.core.genai_adapter import (
     generate_text_async,
-    generate_text_stream_async,
     get_client,
     with_thinking,
 )
@@ -118,81 +118,7 @@ Respond in this exact JSON structure (no markdown, no backticks):
 }}
 """
 
-# ── Study Buddy Streaming Prompt ──────────────────────────────────────
-# Same philosophy as STUDY_BUDDY_PROMPT but with natural text output.
-# Journal/quiz suggestions are extracted via a follow-up call after
-# streaming completes (see _extract_suggestions).
 
-STUDY_BUDDY_STREAM_PROMPT = """\
-You are a friendly, encouraging study buddy — like a personal tutor who knows \
-the user's uploaded documents and journals inside out.
-
-## PERSONALITY
-- Warm and encouraging — use occasional emojis (📚 💡 🎯 ✨ ✅)
-- Ask Socratic questions to deepen understanding: "What do you think?" \
-"Can you explain that in your own words?"
-- Celebrate "aha!" moments genuinely
-- Be concise but thorough — 2-4 paragraphs max
-
-## DATA-FIRST APPROACH
-The user has uploaded documents and written journal entries about their studies.
-Below is the relevant context pulled from their personal data:
-
---- RELEVANT DOCUMENT CHUNKS ---
-{context_chunks}
-
---- RELEVANT JOURNAL ENTRIES ---
-{context_journals}
-
---- CONVERSATION HISTORY (last 20 messages) ---
-{history}
-
-### HOW TO USE EACH DATA TYPE
-1. **JOURNAL ENTRIES** (most important) — These are the user's personal notes,
-   reflections, and insights. They represent what the user has already thought
-   about and understood. **Weight these more heavily** than document chunks.
-   Always connect your answer back to the user's own journal entries first.
-   Use citations: [Journal: YYYY-MM-DD]
-
-2. **DOCUMENT CHUNKS** — These are from uploaded reference materials (PDFs,
-   text files). Use them to fill gaps or provide deeper explanations.
-   Use citations: [Doc: filename]
-
-3. **CONVERSATION HISTORY** — The ongoing chat. Maintain continuity by
-   referencing what was discussed earlier.
-
-4. **GENERAL KNOWLEDGE** — Supplement ONLY when the user's data doesn't fully
-   cover the question. Label supplemented parts with "Based on general study
-   techniques…"
-
-## RESPONSE RULES
-1. Always start your answer anchored in the user's OWN journal entries — this
-   shows you value their personal notes above all else.
-2. Ask yourself: "What did the user write in their journals that relates to
-   this?" and surface those connections explicitly.
-3. NEVER say you can't answer — always help them learn using what you have.
-
-## DETECT JOURNAL-WORTHY MOMENTS
-Journal-worthy moments include:
-- When the user says "I understand/learned/realized X"
-- When the user explains a concept in their own words
-- When the user connects two concepts together
-- When the user asks a particularly deep question
-- When the user summarizes what they learned
-
-When you detect a journal-worthy moment, include a journal_suggestion with a
-well-written, concise summary of the insight.
-IMPORTANT: Only suggest journals 1-3 times per session at most.
-
-## DETECT QUIZ-WORTHY MOMENTS
-- User seems confused about a concept -> suggest a quick quiz
-- User just learned a major concept -> suggest a quiz to solidify
-- User has been studying a while -> suggest a topic_review quiz
-
-## OUTPUT
-Respond naturally in plain text. No JSON, no markdown, no backticks.
-Just be your warm, encouraging self.
-"""
 
 
 class StudyBuddyService:
@@ -253,7 +179,7 @@ class StudyBuddyService:
         self, user_id: str, payload: CreateSessionRequest
     ) -> StudySessionResponse:
         """Create a new study session, optionally scoped to a topic."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Validate topic_id if provided
         topic_oid = None
@@ -362,7 +288,7 @@ class StudyBuddyService:
             assert doc is not None
             return self._format_session(doc)
 
-        set_fields["updated_at"] = datetime.utcnow()
+        set_fields["updated_at"] = datetime.now(timezone.utc)
 
         result = await self._sessions_collection.find_one_and_update(
             {"_id": ObjectId(session_id)},
@@ -401,7 +327,7 @@ class StudyBuddyService:
         session = await self._assert_session_owner(session_id, user_id)
         topic_id = session.get("topic_id")
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # 2. Save the user's message
         user_msg_result = await self._messages_collection.insert_one({
@@ -471,22 +397,35 @@ class StudyBuddyService:
             "role": "assistant",
             "content": reply,
             "metadata": msg_meta,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         })
 
         # 8. Update session message count
         await self._sessions_collection.update_one(
             {"_id": ObjectId(session_id)},
-            {"$inc": {"message_count": 2}, "$set": {"updated_at": datetime.utcnow()}},
+            {"$inc": {"message_count": 2}, "$set": {"updated_at": datetime.now(timezone.utc)}},
         )
 
-        # 9. Build response
+        # 9. Build response — enforce journal suggestion limit per session
         journal_suggestion = None
         if journal_data and journal_data.get("content"):
-            journal_suggestion = JournalSuggestion(
-                message_id=user_msg_id,
-                content=journal_data["content"],
-            )
+            # Count previous journal suggestions made in this session
+            prev_suggestions = await self._messages_collection.count_documents({
+                "session_id": ObjectId(session_id),
+                "role": "assistant",
+                "metadata.journal_suggested": True,
+            })
+            if prev_suggestions < self.MAX_JOURNAL_SUGGESTIONS_PER_SESSION:
+                journal_suggestion = JournalSuggestion(
+                    message_id=user_msg_id,
+                    content=journal_data["content"],
+                )
+            else:
+                logger.info(
+                    "Journal suggestion suppressed — limit of %d reached for session %s",
+                    self.MAX_JOURNAL_SUGGESTIONS_PER_SESSION,
+                    session_id,
+                )
 
         quiz_suggestion = None
         if quiz_data and quiz_data.get("topic"):
@@ -501,203 +440,9 @@ class StudyBuddyService:
             quiz_suggestion=quiz_suggestion,
         )
 
-    # ------------------------------------------------------------------
-    # Chat streaming (SSE)
-    # ------------------------------------------------------------------
+    MAX_JOURNAL_SUGGESTIONS_PER_SESSION = 3
 
-    async def chat_stream(
-        self, session_id: str, user_id: str, payload: ChatRequest
-    ):
-        """Same pre-work as ``chat()`` but streams the Gemini response via SSE.
 
-        Yields ``(token, metadata_or_None)`` tuples where *token* is a text
-        chunk and the final tuple has *token* = ``None`` and *metadata* as
-        the chat metadata dict (reply, journal_suggestion, quiz_suggestion).
-
-        The caller (router) wraps this in a ``StreamingResponse``.
-        """
-        # 1. Verify session ownership
-        session = await self._assert_session_owner(session_id, user_id)
-        topic_id = session.get("topic_id")
-
-        now = datetime.utcnow()
-
-        # 2. Save the user's message
-        user_msg_result = await self._messages_collection.insert_one({
-            "session_id": ObjectId(session_id),
-            "role": "user",
-            "content": payload.message,
-            "metadata": {},
-            "created_at": now,
-        })
-        user_msg_id = str(user_msg_result.inserted_id)
-
-        # 3. Fetch conversation history
-        history_cursor = (
-            self._messages_collection
-            .find({"session_id": ObjectId(session_id)})
-            .sort("created_at", -1)
-            .limit(20)
-        )
-        history_msgs: list[dict] = []
-        async for msg in history_cursor:
-            history_msgs.append(msg)
-        history_msgs.reverse()
-
-        history_lines = []
-        for msg in history_msgs:
-            role = "User" if msg["role"] == "user" else "You (Study Buddy)"
-            history_lines.append(f"{role}: {msg['content'][:500]}")
-        history_text = "\n".join(history_lines) if history_lines else "No previous messages."
-
-        # 4. Search for relevant context
-        context_chunks, context_journals = await self._search_context(
-            user_id, payload.message, topic_id
-        )
-
-        # 5. Build streaming prompt
-        prompt = STUDY_BUDDY_STREAM_PROMPT.format(
-            context_chunks=context_chunks,
-            context_journals=context_journals,
-            history=history_text,
-        )
-
-        # 6. Stream tokens and buffer the full reply
-        full_reply: list[str] = []
-
-        async for token in generate_text_stream_async(
-            prompt,
-            model=settings.gemini_model,
-            config=with_thinking(),  # type: ignore[arg-type]
-        ):
-            full_reply.append(token)
-            yield (token, None)
-
-        reply_text = "".join(full_reply).strip()
-        if not reply_text:
-            reply_text = "I couldn't generate a response. Please try again."
-
-        # 7. Extract suggestions (quick follow-up call)
-        metadata = await self._extract_suggestions(
-            user_id, session_id, user_msg_id, payload.message, reply_text
-        )
-
-        # 8. Save the assistant's message with metadata
-        msg_meta: dict = {}
-        if metadata.get("journal_content"):
-            msg_meta["journal_suggested"] = True
-            msg_meta["journal_content"] = metadata["journal_content"]
-
-        await self._messages_collection.insert_one({
-            "session_id": ObjectId(session_id),
-            "role": "assistant",
-            "content": reply_text,
-            "metadata": msg_meta,
-            "created_at": datetime.utcnow(),
-        })
-
-        # 9. Update session message count
-        await self._sessions_collection.update_one(
-            {"_id": ObjectId(session_id)},
-            {"$inc": {"message_count": 2}, "$set": {"updated_at": datetime.utcnow()}},
-        )
-
-        # 10. Yield final metadata
-        yield (None, metadata)
-
-    # ------------------------------------------------------------------
-    # Extract suggestions (follow-up after streaming)
-    # ------------------------------------------------------------------
-
-    _EXTRACT_SUGGESTIONS_PROMPT = """\
-Analyze this study conversation snippet and identify journal-worthy moments
-or quiz-worthy topics.
-
---- USER MESSAGE ---
-{user_message}
-
---- STUDY BUDDY REPLY ---
-{reply}
-
---- FULL CONVERSATION ---
-{history}
-
-Return ONLY valid JSON in this exact structure (no markdown, no backticks):
-{{
-  "journal_content": null or "A concise, well-written summary of the insight to save as a journal",
-  "quiz_topic": null or "The specific topic name for a quiz",
-  "quiz_reason": null or "Brief reason why a quiz would help now"
-}}
-
-If nothing is journal-worthy or quiz-worthy, return null values."""
-
-    async def _extract_suggestions(
-        self, _user_id: str, session_id: str, user_msg_id: str,
-        user_message: str, reply: str,
-    ) -> dict:
-        """After streaming completes, extract journal/quiz suggestions.
-
-        Returns a dict with keys: journal_content, journal_suggestion,
-        quiz_suggestion.
-        """
-        # Fetch the full conversation history for context
-        history_cursor = (
-            self._messages_collection
-            .find({"session_id": ObjectId(session_id)})
-            .sort("created_at", -1)
-            .limit(10)
-        )
-        history_msgs: list[dict] = []
-        async for msg in history_cursor:
-            history_msgs.append(msg)
-        history_msgs.reverse()
-
-        history_lines = []
-        for msg in history_msgs[-6:]:  # Last 6 messages
-            role = "User" if msg["role"] == "user" else "Study Buddy"
-            history_lines.append(f"{role}: {msg['content'][:500]}")
-        history_text = "\n".join(history_lines)
-
-        prompt = self._EXTRACT_SUGGESTIONS_PROMPT.format(
-            user_message=user_message,
-            reply=reply,
-            history=history_text,
-        )
-
-        raw = await generate_text_async(
-            prompt,
-            model=settings.gemini_model,
-            config=with_thinking({"response_mime_type": "application/json"}),  # type: ignore[arg-type]
-        )
-        raw = raw.strip() or "{}"
-
-        journal_suggestion = None
-        quiz_suggestion = None
-        journal_content = None
-
-        try:
-            parsed = json.loads(raw)
-            jc = parsed.get("journal_content")
-            if jc:
-                journal_content = jc
-                journal_suggestion = JournalSuggestion(
-                    message_id=user_msg_id,
-                    content=jc,
-                )
-            qt = parsed.get("quiz_topic")
-            if qt:
-                quiz_suggestion = QuizSuggestion(
-                    topic=qt,
-                    reason=parsed.get("quiz_reason", "A quiz would help solidify this concept."),
-                )
-        except (json.JSONDecodeError, Exception) as exc:
-            logger.warning("Failed to extract suggestions: %s", exc)
-
-        return {
-            "journal_content": journal_content,
-            "journal_suggestion": journal_suggestion,
-            "quiz_suggestion": quiz_suggestion,
-        }
 
     # ------------------------------------------------------------------
     # Confirm Journal
@@ -759,7 +504,7 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
             )
 
         # 5. Create journal entry (same pattern as JournalEntriesService.create)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         journal_doc = {
             "user_id": ObjectId(str(session["user_id"])),
             "topic_id": topic_id,
@@ -835,7 +580,7 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
         top_k_journals = 12  # Journal entries — more, catch low-match personal notes
 
         # ── Search chunks (keep top_k tight — docs are supplementary) ────
-        chunk_pipeline = [
+        chunk_pipeline: list[dict] = [
             {
                 "$vectorSearch": {
                     "index": VECTOR_INDEX_CHUNKS,
@@ -873,7 +618,7 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
             )
 
         # ── Search journals (wider net + recent fallback) ───────────────
-        journal_pipeline = [
+        journal_pipeline: list[dict] = [
             {
                 "$vectorSearch": {
                     "index": VECTOR_INDEX_JOURNALS,
@@ -964,18 +709,27 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
             )
 
         query_vector = await self._embedder.embed_text(content)
-        best_match: Optional[tuple[float, dict]] = None
 
+        # Embed all topic names in parallel, then score by cosine similarity
+        topic_texts = []
         for topic in topics:
-            topic_text = topic["name"]
+            text = topic["name"]
             if topic.get("description"):
-                topic_text += " " + topic["description"]
-            topic_vector = await self._embedder.embed_text(topic_text)
+                text += " " + topic["description"]
+            topic_texts.append(text)
+
+        topic_vectors = await asyncio.gather(*[
+            self._embedder.embed_text(t) for t in topic_texts
+        ])
+
+        best_match: Optional[tuple[float, dict]] = None
+        for topic, topic_vector in zip(topics, topic_vectors):
             score = self._cosine_similarity(query_vector, topic_vector)
             if best_match is None or score > best_match[0]:
                 best_match = (score, topic)
 
         assert best_match is not None
+        assert isinstance(best_match[1]["_id"], ObjectId)
         return best_match[1]["_id"]
 
     # ------------------------------------------------------------------
@@ -1018,4 +772,4 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
         norm_b = sum(x * x for x in b) ** 0.5
         if norm_a * norm_b == 0:
             return 0.0
-        return dot / (norm_a * norm_b)
+        return dot / (norm_a * norm_b)  # type: ignore[no-any-return]

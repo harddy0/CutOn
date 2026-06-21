@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
@@ -53,7 +53,7 @@ class NotificationsService:
     ) -> NotificationResponse:
         """Insert a new notification for a user."""
         coll = self._notifications_collection
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         doc = {
             "user_id": ObjectId(user_id),
             "type": notif_type,

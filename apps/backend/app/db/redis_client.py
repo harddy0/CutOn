@@ -41,7 +41,7 @@ def _fallback_get(key: str) -> Optional[Any]:
     if time.monotonic() > expires_at:
         del _FALLBACK[key]
         return None
-    return value
+    return value  # type: ignore[no-any-return]
 
 
 def _fallback_set(key: str, value: Any, ttl: int) -> None:
@@ -66,7 +66,7 @@ def _serialise(value: Any) -> str:
     Pydantic BaseModel instances are converted via ``.model_dump_json()``.
     """
     if hasattr(value, "model_dump_json"):
-        return value.model_dump_json()
+        return value.model_dump_json()  # type: ignore[no-any-return]
     return json.dumps(value, default=repr, ensure_ascii=False)
 
 
@@ -113,9 +113,9 @@ class RedisClient:
             cls._pool = ConnectionPool.from_url(
                 redis_url,
                 decode_responses=True,
-                max_connections=10,
-                socket_connect_timeout=2,
-                socket_timeout=2,
+                max_connections=settings.redis_max_connections,
+                socket_connect_timeout=settings.redis_socket_connect_timeout_sec,
+                socket_timeout=settings.redis_socket_timeout_sec,
                 retry_on_timeout=False,
             )
             cls._client = Redis.from_pool(cls._pool)
@@ -158,7 +158,7 @@ class RedisClient:
                 raw = await cls._client.get(key)
                 if raw is None:
                     return None
-                return _deserialise(raw)
+                return _deserialise(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
             except Exception:
                 cls._available = False  # degrade to fallback
 

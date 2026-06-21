@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -69,7 +69,7 @@ class UsersService:
             "role": "user",
             "is_active": True,
             "preferences": {"email_notifications": True},
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
             "last_login": None,
         }
 
@@ -122,17 +122,25 @@ class UsersService:
         )
         return self._format_user(result)
 
-    async def delete(self, user_id: str) -> bool:
-        """Delete a user by _id. Returns True if a document was deleted."""
+    async def deactivate(self, user_id: str) -> UserResponse:
+        """Deactivate a user by setting ``is_active`` to ``false``."""
         collection = self._users_collection
         try:
             oid = ObjectId(user_id)
         except (InvalidId, TypeError):
             raise HTTPException(status_code=400, detail="Invalid user_id format")
-        result = await collection.delete_one({"_id": oid})
-        if result.deleted_count == 1:
-            await self._audit.log(user_id, "user.delete", "user", user_id, {})
-        return result.deleted_count == 1
+
+        result = await collection.find_one_and_update(
+            {"_id": oid},
+            {"$set": {"is_active": False}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        await self._audit.log(
+            user_id, "user.deactivate", "user", user_id, {}
+        )
+        return self._format_user(result)
 
     async def list_all(self, skip: int = 0, limit: int = 100) -> list[UserResponse]:
         """Return a paginated list of users."""

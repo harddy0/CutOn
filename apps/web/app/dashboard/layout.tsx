@@ -4,7 +4,7 @@ import { useCallback, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { BrainLogo } from "@/components/icons/brain-logo";
-import { clearAccessToken } from "@/lib/api";
+import { clearAccessToken, getMe } from "@/lib/api";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: "grid" },
@@ -14,6 +14,8 @@ const navItems = [
   { label: "Study", href: "/dashboard/study", icon: "chat" },
   { label: "Quizzes", href: "/dashboard/quizzes", icon: "quiz" },
 ];
+
+const adminNavItem = { label: "Admin", href: "/dashboard/admin", icon: "admin" };
 
 const NAV_ICONS: Record<string, React.ReactNode> = {
   grid: (
@@ -52,6 +54,12 @@ const NAV_ICONS: Record<string, React.ReactNode> = {
       <path d="M5 7l1.5 1.5L9 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
+  admin: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M7 1.5L2 4v3c0 3.3 2 6.3 5 7 3-.7 5-3.7 5-7V4L7 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M5 7l1.5 1.5L9 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
 };
 
 export default function DashboardLayout({
@@ -62,6 +70,17 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  // Fetch user role to conditionally show admin nav
+  useEffect(() => {
+    getMe()
+      .then((user) => setUserRole(user.role))
+      .catch(() => setUserRole(null));
+  }, []);
+
+  const allNavItems =
+    userRole === "admin" ? [...navItems, adminNavItem] : navItems;
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -122,7 +141,7 @@ export default function DashboardLayout({
 
             {/* Center: Desktop nav links */}
             <div className="hidden md:flex items-center gap-0.5">
-              {navItems.map((item) => {
+              {allNavItems.map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <Link
@@ -195,7 +214,7 @@ export default function DashboardLayout({
 
             {/* Nav items */}
             <div className="flex-1 overflow-y-auto py-3 px-3 space-y-0.5 scrollbar-hide">
-              {navItems.map((item, i) => {
+              {allNavItems.map((item, i) => {
                 const isActive = pathname === item.href;
                 return (
                   <Link
