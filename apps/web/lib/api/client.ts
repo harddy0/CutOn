@@ -86,6 +86,95 @@ async function handleResponse<T>(response: Response): Promise<T> {
  * Config (base URL, token storage) is managed centrally in `config.ts`.
  * Individual API callers (e.g. `auth.ts`) never touch env vars directly.
  */
+// ---------------------------------------------------------------------------
+// SSE Streaming (POST-based Server-Sent Events)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single SSE event parsed from the stream.
+ */
+export interface SseEvent {
+  event: string;   // "results" | "token" | "done" | "error" | "metadata"
+  data: string;    // raw JSON string for most events, plain text for "token"
+}
+
+/**
+ * Async generator that reads a POST-based SSE response.
+ *
+ * Usage:
+ * ```ts
+ * for await (const event of fetchStream("/api/v1/query/stream", { query: "..." })) {
+ *   if (event.event === "token") { /* append token to UI *\/ }
+ * }
+ * ```
+ */
+export async function* fetchStream(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): AsyncGenerator<SseEvent, void, unknown> {
+  const url = buildUrl(path);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...buildHeaders(true),
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  if (!response.ok) {
+    let detail: unknown;
+    try {
+      const body = await response.json();
+      detail = body.detail ?? body;
+    } catch {
+      detail = response.statusText;
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new ApiError(0, "Response body is not readable");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let currentEvent = "";
+  let currentData = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      // Flush any remaining partial event after stream ends
+      if (currentEvent && currentData !== undefined) {
+        yield { event: currentEvent, data: currentData };
+      }
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (line.startsWith("event: ") || line.startsWith("event:")) {
+        currentEvent = line.startsWith("event: ") ? line.slice(7).trim() : line.slice(6).trim();
+      } else if (line.startsWith("data: ") || line.startsWith("data:")) {
+        currentData = line.startsWith("data: ") ? line.slice(6) : line.slice(5);
+      } else if (line === "" && currentEvent) {
+        yield { event: currentEvent, data: currentData };
+        currentEvent = "";
+        currentData = "";
+      }
+    }
+  }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────
+
 export const api = {
   // -- JSON ---------------------------------------------------------------
 

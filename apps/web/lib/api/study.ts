@@ -1,4 +1,4 @@
-import { api } from "./client";
+import { api, fetchStream } from "./client";
 import type {
   StudySessionResponse,
   StudySessionDetailResponse,
@@ -8,6 +8,7 @@ import type {
   ChatResponse,
   ConfirmJournalResponse,
 } from "./dto/study";
+import type { SseEvent } from "./client";
 
 // ---------------------------------------------------------------------------
 // List study sessions
@@ -83,5 +84,30 @@ export async function confirmJournal(sessionId: string, messageId: string): Prom
   return api.post<ConfirmJournalResponse>(
     `/api/v1/study-sessions/${sessionId}/messages/${messageId}/confirm-journal`,
     { auth: true }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Streaming chat (SSE)
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a chat message to the Study Buddy and receive a **streaming** response.
+ *
+ * The generator yields SSE events:
+ * - `"token"`     — a single text chunk from the model
+ * - `"metadata"`  — journal/quiz suggestion metadata (JSON)
+ * - `"done"`      — signals completion
+ * - `"error"`     — an error occurred (JSON body)
+ */
+export async function* chatSendStream(
+  sessionId: string,
+  data: ChatRequest,
+  signal?: AbortSignal,
+): AsyncGenerator<SseEvent, void, unknown> {
+  yield* fetchStream(
+    `/api/v1/study-sessions/${sessionId}/chat/stream`,
+    data,
+    signal,
   );
 }

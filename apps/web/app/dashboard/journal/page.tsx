@@ -486,6 +486,16 @@ export default function JournalPage() {
   const [newContent, setNewContent] = useState("");
   const [creating, setCreating] = useState(false);
   const [promptIndex, setPromptIndex] = useState(0);
+  const createFormRef = useRef<HTMLFormElement>(null);
+
+  // Auto-scroll to form when opened
+  useEffect(() => {
+    if (showCreate && createFormRef.current) {
+      setTimeout(() => {
+        createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [showCreate]);
 
   // Rotate prompt every 4 seconds when create form is open
   useEffect(() => {
@@ -670,7 +680,7 @@ export default function JournalPage() {
       {/* ════════════════════════════════════════
           HERO HEADER
           ════════════════════════════════════════ */}
-      <div className="relative overflow-hidden mb-8 rounded-[4px] bg-surface border-2 border-ink shadow-hard p-6 md:p-8">
+      <div className={`relative overflow-hidden rounded-[4px] bg-surface border-2 border-ink shadow-hard ${showCreate ? 'p-3 md:p-4' : 'p-6 md:p-8'} ${showCreate ? 'mb-2' : 'mb-8'}`}>
         <div className="absolute inset-0 -z-10 bg-gradient-to-br from-purple-start/50 via-blue-start/20 to-green-start/30" />
         <div className="absolute -top-8 -right-8 w-40 h-40 bg-gradient-to-br from-purple-start/20 to-purple-end/10 border-2 border-ink rounded-[4px] shadow-hard rotate-12 hidden md:block animate-float-slow pointer-events-none select-none" />
         <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-gradient-to-br from-green-start/20 to-blue-start/10 border-2 border-ink rounded-[4px] shadow-hard -rotate-6 hidden md:block animate-float pointer-events-none select-none" />
@@ -707,7 +717,7 @@ export default function JournalPage() {
 
         {/* ── Quick stats bar ── */}
         {!loading && entries.length > 0 && (
-          <div className="mt-5 pt-4 border-t border-border-subtle animate-fade-up-2">
+          <div className={`border-t border-border-subtle animate-fade-up-2 ${showCreate ? 'mt-2 pt-2' : 'mt-5 pt-4'}`}>
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
               <div className="rounded-[4px] border border-border-subtle bg-canvas/50 p-2.5">
                 <span className="text-lg font-black text-purple-accent">{stats.total}</span>
@@ -759,7 +769,7 @@ export default function JournalPage() {
       )}
 
       {/* ── Topic filter ── */}
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <div className={`flex flex-wrap items-center gap-2 ${showCreate ? 'mb-2' : 'mb-5'}`}>
         <span className="text-[11px] font-mono font-bold text-ink-muted uppercase tracking-wider mr-1">
           Filter:
         </span>
@@ -805,8 +815,9 @@ export default function JournalPage() {
       {/* ── Create form ── */}
       {showCreate && (
         <form
+          ref={createFormRef}
           onSubmit={handleCreate}
-          className="mb-6 rounded-[4px] bg-surface border-2 border-ink p-5 md:p-6 shadow-hard animate-scale-in"
+          className="sticky top-14 md:top-16 z-20 -mx-4 md:-mx-0 px-4 md:px-0 mb-4 rounded-[4px] bg-surface border-2 border-ink p-5 md:p-6 shadow-hard animate-scale-in"
         >
           <div className="space-y-4">
             {/* Topic selector */}

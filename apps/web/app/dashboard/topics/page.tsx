@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   listTopics,
   createTopic,
@@ -50,6 +50,16 @@ export default function TopicsPage() {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [creating, setCreating] = useState(false);
+  const createFormRef = useRef<HTMLFormElement>(null);
+
+  // Auto-scroll to form when opened
+  useEffect(() => {
+    if (showCreate && createFormRef.current) {
+      setTimeout(() => {
+        createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [showCreate]);
 
   // ── Edit state (tracking by id) ──
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -176,7 +186,7 @@ export default function TopicsPage() {
       {/* ════════════════════════════════════════
           HERO HEADER
           ════════════════════════════════════════ */}
-      <div className="relative overflow-hidden mb-8 rounded-[4px] bg-surface border-2 border-ink shadow-hard p-6 md:p-8">
+      <div className={`relative overflow-hidden rounded-[4px] bg-surface border-2 border-ink shadow-hard ${showCreate ? 'p-3 md:p-4' : 'p-6 md:p-8'} ${showCreate ? 'mb-2' : 'mb-8'}`}>
         <div className="absolute inset-0 -z-10 bg-gradient-to-br from-green-start/50 via-blue-start/20 to-purple-start/30" />
         <div className="absolute -top-8 -right-8 w-40 h-40 bg-gradient-to-br from-green-start/20 to-green-end/10 border-2 border-ink rounded-[4px] shadow-hard rotate-12 hidden md:block animate-float-slow pointer-events-none select-none" />
         <div className="absolute -bottom-4 -left-4 w-24 h-24 bg-gradient-to-br from-blue-start/20 to-purple-start/10 border-2 border-ink rounded-[4px] shadow-hard -rotate-6 hidden md:block animate-float pointer-events-none select-none" />
@@ -247,8 +257,9 @@ export default function TopicsPage() {
       {/* ── Create form ── */}
       {showCreate && (
         <form
+          ref={createFormRef}
           onSubmit={handleCreate}
-          className="mb-6 rounded-[4px] bg-surface border-2 border-ink p-5 shadow-hard"
+          className="sticky top-14 md:top-16 z-20 -mx-4 md:-mx-0 px-4 md:px-0 mb-4 rounded-[4px] bg-surface border-2 border-ink p-5 shadow-hard animate-scale-in"
         >
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>

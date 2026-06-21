@@ -3,11 +3,20 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  getDashboardStats,
+  getDashboardSummary,
+  getDashboardLearning,
+  getDashboardQuizzes,
+  getDashboardRag,
   searchQuery,
   ApiError,
 } from "@/lib/api";
-import type { DashboardStatsResponse, QueryResultItem } from "@/lib/api";
+import type {
+  DashboardSummaryResponse,
+  DashboardLearningResponse,
+  DashboardQuizResponse,
+  DashboardRagResponse,
+  QueryResultItem,
+} from "@/lib/api";
 import { BrainLogo } from "@/components/icons/brain-logo";
 
 // ---------------------------------------------------------------------------
@@ -26,9 +35,25 @@ function extractErrorMessage(err: unknown): string {
   return "An unexpected error occurred";
 }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+// ---------------------------------------------------------------------------
+// Combined dashboard data
+// ---------------------------------------------------------------------------
+
+interface DashboardData {
+  total_topics: number;
+  total_journals: number;
+  journals_last_7_days: number;
+  journals_embedded: number;
+  total_sources: number;
+  total_chunks: number;
+  chunks_embedded: number;
+  total_quizzes: number;
+  avg_quiz_score: number;
+  active_sessions: number;
+  total_sessions: number;
+  unread_notifications: number;
+  total_rag_queries: number;
+  rag_positive_rate: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,11 +62,11 @@ function formatDate(iso: string): string {
 
 const STATS = [
   { key: "topics", label: "Topics", href: "/dashboard/topics", accent: "text-blue-accent", gradient: "from-blue-start to-blue-end", icon: "folder", countKey: "total_topics" as const, sub: null },
-  { key: "sources", label: "Documents", href: "/dashboard/sources", accent: "text-green-accent", gradient: "from-green-start to-green-end", icon: "file", countKey: "total_sources" as const, sub: (s: DashboardStatsResponse) => `${s.total_chunks} chunk${s.total_chunks !== 1 ? "s" : ""}` },
-  { key: "journal", label: "Journal Entries", href: "/dashboard/journal", accent: "text-purple-accent", gradient: "from-purple-start to-purple-end", icon: "note", countKey: "total_journals" as const, sub: (s: DashboardStatsResponse) => `${s.journals_last_7_days} this week` },
-  { key: "sessions", label: "Study Sessions", href: "/dashboard/study", accent: "text-green-accent", gradient: "from-green-start to-green-end", icon: "chat", countKey: "total_sessions" as const, sub: (s: DashboardStatsResponse) => s.active_sessions > 0 ? `${s.active_sessions} active` : null },
-  { key: "quizzes", label: "Quizzes", href: "/dashboard/quizzes", accent: "text-blue-accent", gradient: "from-blue-start to-blue-end", icon: "quiz", countKey: "total_quizzes" as const, sub: (s: DashboardStatsResponse) => s.total_quizzes > 0 ? `${(s.avg_quiz_score * 100).toFixed(0)}% avg` : null },
-  { key: "queries", label: "RAG Queries", accent: "text-purple-accent", gradient: "from-purple-start to-purple-end", icon: "search", countKey: "total_rag_queries" as const, sub: (s: DashboardStatsResponse) => s.total_rag_queries > 0 ? `${(s.rag_positive_rate * 100).toFixed(0)}% positive` : null },
+  { key: "sources", label: "Documents", href: "/dashboard/sources", accent: "text-green-accent", gradient: "from-green-start to-green-end", icon: "file", countKey: "total_sources" as const, sub: (s: DashboardData) => `${s.total_chunks} chunk${s.total_chunks !== 1 ? "s" : ""}` },
+  { key: "journal", label: "Journal Entries", href: "/dashboard/journal", accent: "text-purple-accent", gradient: "from-purple-start to-purple-end", icon: "note", countKey: "total_journals" as const, sub: (s: DashboardData) => `${s.journals_last_7_days} this week` },
+  { key: "sessions", label: "Study Sessions", href: "/dashboard/study", accent: "text-green-accent", gradient: "from-green-start to-green-end", icon: "chat", countKey: "total_sessions" as const, sub: (s: DashboardData) => s.active_sessions > 0 ? `${s.active_sessions} active` : null },
+  { key: "quizzes", label: "Quizzes", href: "/dashboard/quizzes", accent: "text-blue-accent", gradient: "from-blue-start to-blue-end", icon: "quiz", countKey: "total_quizzes" as const, sub: (s: DashboardData) => s.total_quizzes > 0 ? `${(s.avg_quiz_score * 100).toFixed(0)}% avg` : null },
+  { key: "queries", label: "RAG Queries", accent: "text-purple-accent", gradient: "from-purple-start to-purple-end", icon: "search", countKey: "total_rag_queries" as const, sub: (s: DashboardData) => s.total_rag_queries > 0 ? `${(s.rag_positive_rate * 100).toFixed(0)}% positive` : null },
 ] as const;
 
 const STAT_ICONS: Record<string, React.ReactNode> = {
@@ -81,10 +106,6 @@ const STAT_ICONS: Record<string, React.ReactNode> = {
   ),
 };
 
-// ---------------------------------------------------------------------------
-// Source type label styling
-// ---------------------------------------------------------------------------
-
 const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
   document_chunk: { label: "Doc", cls: "bg-gradient-to-r from-blue-start to-blue-end text-blue-accent" },
   journal_entry: { label: "Journal", cls: "bg-gradient-to-r from-purple-start to-purple-end text-purple-accent" },
@@ -95,8 +116,8 @@ const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
 // ---------------------------------------------------------------------------
 
 export default function DashboardPage() {
-  // ── Stats ──
-  const [stats, setStats] = useState<DashboardStatsResponse | null>(null);
+  // ── Stats (fetched in parallel from split endpoints) ──
+  const [stats, setStats] = useState<DashboardData | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   // ── Query ──
@@ -111,15 +132,35 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   // ------------------------------------------------------------------
-  // Fetch stats
+  // Fetch stats from split endpoints in parallel
   // ------------------------------------------------------------------
 
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
     setError(null);
     try {
-      const data = await getDashboardStats();
-      setStats(data);
+      const [summary, learning, quiz, rag] = await Promise.all([
+        getDashboardSummary(),
+        getDashboardLearning(),
+        getDashboardQuizzes(),
+        getDashboardRag(),
+      ]);
+      setStats({
+        total_topics: summary.total_topics,
+        total_sources: summary.total_sources,
+        total_sessions: summary.total_sessions,
+        active_sessions: summary.active_sessions,
+        unread_notifications: summary.unread_notifications,
+        total_journals: learning.total_journals,
+        journals_last_7_days: learning.journals_last_7_days,
+        journals_embedded: learning.journals_embedded,
+        total_chunks: learning.total_chunks,
+        chunks_embedded: learning.chunks_embedded,
+        total_quizzes: quiz.total_quizzes,
+        avg_quiz_score: quiz.avg_quiz_score,
+        total_rag_queries: rag.total_rag_queries,
+        rag_positive_rate: rag.rag_positive_rate,
+      });
     } catch (err: unknown) {
       setError(extractErrorMessage(err));
     } finally {
@@ -169,7 +210,7 @@ export default function DashboardPage() {
       <div className="relative overflow-hidden mb-8 rounded-[4px] bg-surface border-2 border-ink shadow-hard p-6 md:p-8">
         {/* Decorative bg */}
         <div className="absolute inset-0 -z-10 bg-gradient-to-br from-green-start/40 via-blue-start/20 to-purple-start/30" />
-        <div className="absolute -top-6 -right-6 w-32 h-32 bg-gradient-to-br from-green-start/20 to-green-end/10 border-2 border-ink rounded-[4px] shadow-hard rotate-12 hidden md:block animate-float-slow" />
+        <div className="absolute -top-6 -right-6 w-32 h-32 bg-gradient-to-br from-green-start/20 to-green-end/10 border-2 border-ink rounded-[4px] shadow-hard rotate-12 hidden md:block animate-float-slow pointer-events-none select-none" />
 
         <div className="flex items-start gap-4 flex-wrap">
           <div className="hidden sm:block">
@@ -261,13 +302,10 @@ export default function DashboardPage() {
               <div className="py-6 flex flex-col items-center justify-center gap-3">
                 {/* Neural loading animation */}
                 <div className="relative w-16 h-16">
-                  {/* Outer rings */}
                   <div className="absolute inset-0 rounded-full border-2 border-green-accent/30 animate-ping" style={{ animationDuration: "2s" }} />
                   <div className="absolute inset-2 rounded-full border-2 border-blue-accent/30 animate-ping" style={{ animationDuration: "2.5s", animationDelay: "0.3s" }} />
                   <div className="absolute inset-4 rounded-full border-2 border-purple-accent/30 animate-ping" style={{ animationDuration: "3s", animationDelay: "0.6s" }} />
-                  {/* Center brain */}
                   <div className="absolute inset-[14px] rounded-full bg-gradient-to-br from-green-accent via-blue-accent to-purple-accent animate-pulse border border-ink" style={{ animationDuration: "1.5s" }} />
-                  {/* Neural dots orbiting */}
                   <div className="absolute -top-1 -left-1 w-2 h-2 rounded-full bg-green-accent border border-ink animate-ping" style={{ animationDuration: "1s", animationDelay: "0.2s" }} />
                   <div className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-blue-accent border border-ink animate-ping" style={{ animationDuration: "1.2s", animationDelay: "0.5s" }} />
                   <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-purple-accent border border-ink animate-ping" style={{ animationDuration: "1.4s", animationDelay: "0.8s" }} />
@@ -365,12 +403,12 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-        ) : (
+        ) : stats ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
-            {stats && STATS.map((s, i) => {
-              const count = stats[s.countKey] ?? 0;
+            {STATS.map((s, i) => {
+              const count = stats[s.countKey];
               const subText = s.sub ? s.sub(stats) : null;
-              const hasHref = "href" in s;
+              const hasHref = "href" in s && s.href;
               const content = (
                 <div
                   className={`rounded-[4px] bg-surface border-2 border-ink p-4 md:p-5 shadow-hard transition-all duration-150 hover:shadow-hard-hover hover:translate-x-[1px] hover:translate-y-[1px] ${
@@ -388,18 +426,18 @@ export default function DashboardPage() {
                   </div>
                   <p className="text-xs md:text-sm font-black text-ink">{s.label}</p>
                   {subText && (
-                    <span className="text-[10px] font-mono text-ink-muted/50 mt-0.5 block">{subText}</span>
+                    <span className="text-[10px] font-mono text-ink-muted/60 mt-0.5 block">{subText}</span>
                   )}
                 </div>
               );
 
               if (hasHref) {
-                return <Link key={s.key} href={s.href!}>{content}</Link>;
+                return <Link key={s.key} href={s.href}>{content}</Link>;
               }
               return <div key={s.key}>{content}</div>;
             })}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* ════════════════════════════════════════

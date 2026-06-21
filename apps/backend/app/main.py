@@ -9,6 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.config import settings
 from app.db.client import DatabaseClient
+from app.db.redis_client import RedisClient
 from app.modules.auth.limiter import limiter
 from app.modules.auth.router import router as auth_router
 from app.modules.auth.middleware import AuthRouteMiddleware
@@ -29,9 +30,11 @@ from app.modules.notifications.router import router as notifications_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Opens the MongoDB connection on startup and closes it on shutdown."""
+    """Opens DB and Redis connections on startup, closes them on shutdown."""
     await DatabaseClient.connect()
+    await RedisClient.connect()
     yield
+    await RedisClient.close()
     await DatabaseClient.close()
 
 

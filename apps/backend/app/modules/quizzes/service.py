@@ -12,7 +12,7 @@ from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
-from app.core.genai_adapter import get_client, with_thinking
+from app.core.genai_adapter import generate_text_async, get_client, with_thinking
 from app.db.client import DatabaseClient
 from app.modules.audit.service import AuditService
 from app.modules.embeddings.service import EmbeddingsService
@@ -302,7 +302,7 @@ class QuizzesService:
             )
 
         # 2. Embed the query
-        query_vector = self._embedder.embed_text(query)
+        query_vector = await self._embedder.embed_text(query)
 
         # 3. Score each topic by cosine similarity
         best_match: Optional[tuple[float, dict]] = None
@@ -310,7 +310,7 @@ class QuizzesService:
             topic_text = topic["name"]
             if topic.get("description"):
                 topic_text += " " + topic["description"]
-            topic_vector = self._embedder.embed_text(topic_text)
+            topic_vector = await self._embedder.embed_text(topic_text)
             score = _cosine_similarity(query_vector, topic_vector)
 
             if best_match is None or score > best_match[0]:
@@ -471,19 +471,23 @@ class QuizzesService:
     # LLM call
     # ══════════════════════════════════════════════════════════════════
 
-    def _call_llm_for_quiz(
+    async def _call_llm_for_quiz(
         self, prompt: str, num_questions: int
     ) -> dict:
-        """Call Gemini with structured JSON output and return the parsed quiz dict."""
-        response = self._llm_client.models.generate_content(
+        """Call Gemini with structured JSON output (async, non-blocking).
+
+        Runs the synchronous SDK call on a thread pool so the event loop
+        stays free for other requests.
+        """
+        raw = await generate_text_async(
+            prompt,
             model=settings.gemini_model,
-            contents=prompt,
             config=with_thinking({  # type: ignore[arg-type]
                 "response_mime_type": "application/json",
             }),
         )
+        raw = raw.strip() if raw else ""
 
-        raw = response.text.strip() if response.text else ""
         if not raw:
             raise HTTPException(
                 status_code=502,
@@ -499,13 +503,14 @@ class QuizzesService:
                 prompt
                 + "\n\nIMPORTANT: Return ONLY valid JSON. No markdown, no backticks, no extra text."
             )
-            response = self._llm_client.models.generate_content(
+            raw = await generate_text_async(
+                retry_prompt,
                 model=settings.gemini_model,
-                contents=retry_prompt,            config=with_thinking({  # type: ignore[arg-type]
-                "response_mime_type": "application/json",
-            }),
-        )
-            raw = response.text.strip() if response.text else ""
+                config=with_thinking({  # type: ignore[arg-type]
+                    "response_mime_type": "application/json",
+                }),
+            )
+            raw = raw.strip() if raw else ""
             try:
                 quiz_data = json.loads(raw)
             except json.JSONDecodeError:
@@ -623,7 +628,7 @@ class QuizzesService:
         )
 
         # Call LLM
-        quiz_data = self._call_llm_for_quiz(prompt, num_questions)
+        quiz_data = await self._call_llm_for_quiz(prompt, num_questions)
 
         return await self._persist_quiz(
             quiz_data=quiz_data,
@@ -702,7 +707,7 @@ class QuizzesService:
         )
 
         # 5. Call LLM
-        quiz_data = self._call_llm_for_quiz(prompt, num_questions)
+        quiz_data = await self._call_llm_for_quiz(prompt, num_questions)
 
         return await self._persist_quiz(
             quiz_data=quiz_data,

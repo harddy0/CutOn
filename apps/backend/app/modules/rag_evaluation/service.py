@@ -9,7 +9,7 @@ from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
 
 from app.core.config import settings
-from app.core.genai_adapter import get_client, with_thinking
+from app.core.genai_adapter import generate_text_async, get_client, with_thinking
 from app.db.client import DatabaseClient
 from app.modules.rag_evaluation.dto import (
     RAGEvaluationResponse,
@@ -104,7 +104,7 @@ class RAGEvaluationService:
         # Fire-and-forget via asyncio task — doesn't block the response
         async def _run_faithfulness() -> None:
             try:
-                score = self._evaluate_faithfulness(retrieved_chunks, answer)
+                score = await self._evaluate_faithfulness(retrieved_chunks, answer)
                 if score is not None:
                     await self._evaluations_collection.update_one(
                         {"_id": result.inserted_id},
@@ -266,11 +266,12 @@ class RAGEvaluationService:
     # LLM-as-judge faithfulness evaluation
     # ------------------------------------------------------------------
 
-    def _evaluate_faithfulness(
+    async def _evaluate_faithfulness(
         self, retrieved_chunks: list[dict], answer: str
     ) -> Optional[float]:
         """Use Gemini to evaluate answer faithfulness against retrieved context.
 
+        Runs on a thread pool so it doesn't block the event loop.
         Returns 0.0-1.0 or None if evaluation fails.
         """
         if not answer or not retrieved_chunks:
@@ -286,12 +287,12 @@ class RAGEvaluationService:
         prompt = FAITHFULNESS_PROMPT.format(context=context, answer=answer)
 
         try:
-            response = self._llm_client.models.generate_content(
+            raw = await generate_text_async(
+                prompt,
                 model=settings.gemini_model,
-                contents=prompt,
                 config=with_thinking(),  # type: ignore[arg-type]
             )
-            raw = response.text.strip() if response.text else ""
+            raw = raw.strip() if raw else ""
             score = float(raw)
             return max(0.0, min(1.0, score))  # Clamp to [0, 1]
         except (ValueError, Exception) as exc:
