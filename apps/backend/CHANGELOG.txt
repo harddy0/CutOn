@@ -4,99 +4,129 @@
 ═══════════════════════════════════════════════════════════
 
 
-1. FEAT — Redis-Backed Caching with Tiered TTLs
+1. SECURITY — Route Guard Audit & Rate Limiting
 ──────────────────────────────────────────────────────────────
-  Files:    app/db/redis_client.py (new)
-            app/main.py
-            app/modules/dashboard/service.py
+  Files:
+    app/modules/auth/deps.py
+    app/modules/auth/limiter.py
+    app/modules/auth/router.py
+    app/modules/query/router.py
+    app/modules/study_buddy/router.py
+    app/modules/documents/router.py
 
   Changes:
-    • New app/db/redis_client.py: async Redis singleton with
-      ConnectionPool, Pydantic serialization via model_dump_json(),
-      and transparent in-memory fallback when Redis is unavailable.
-    • Wired RedisClient.connect/close into app lifespan (main.py).
-    • Split monolithic /dashboard/stats into 5 specialized routes:
-      /summary (30s TTL), /learning (60s TTL), /quizzes (5min TTL),
-      /rag (5min TTL), /activity (30s TTL).
-    • Legacy /stats endpoint preserved (deprecated, delegates to
-      split methods via asyncio.gather).
+    • Added require_admin_or_own_user guard — allows admins to access
+      any user's account while preserving self-service for regular users
+    • Added global rate limit: default_limits=["60/minute"] on the
+      shared Limiter instance (safety net across all endpoints)
+    • Added per-endpoint rate limits:
+        - POST /auth/register     → 5/minute
+        - POST /query/            → 30/minute
+        - POST /query/stream      → 30/minute
+        - POST /study-sessions/*  → 20/minute (chat + stream)
+        - POST /sources/upload    → 10/minute
 
 
-2. FEAT — Async GenAI Calls via Thread Pool Offloading
-──────────────────────────────────────────────────────────────
-  Files:    app/core/genai_adapter.py
-            app/modules/embeddings/service.py
-            app/modules/query/service.py
-            app/modules/quizzes/service.py
-            app/modules/rag_evaluation/service.py
-            app/modules/study_buddy/service.py
-
-  Problem: All Gemini API calls (generate_content, embed_content)
-           were synchronous, blocking the FastAPI event loop.
-           A user request to /query or /study-sessions/{id}/chat
-           would stall ALL other API requests until Gemini
-           responded (2–20s).
-
-  Changes:
-    • genai_adapter.py:
-        - Added generate_text_async() — wraps sync SDK calls
-          in asyncio.to_thread() so the event loop stays free.
-        - Added generate_text_stream_async() — Queue-based SSE
-          streaming via thread pool (loop.run_in_executor).
-    • embeddings/service.py: Made embed_text() async via thread pool.
-    • query/service.py: Made _synthesize() async, all embed_text()
-      calls now awaited.
-    • study_buddy/service.py: chat() now calls generate_text_async(),
-      all embed_text() calls awaited.
-    • quizzes/service.py: _call_llm_for_quiz() now async, all
-      embed_text() calls awaited.
-    • rag_evaluation/service.py: _evaluate_faithfulness() now async,
-      _run_faithfulness() correctly awaits it.
-
-  Result: GenAI calls no longer block the event loop. Other API
-          requests process freely while Gemini is waiting.
-
-
-3. FEAT — SSE Streaming Endpoint for Query Synthesis
-──────────────────────────────────────────────────────────────
-  File:    app/modules/query/router.py
-
-  Changes:
-    • Added POST /query/stream — SSE streaming endpoint.
-    • Returns event stream: results (retrieved chunks) →
-      tokens (streamed synthesis) → done.
-    • Event types: results, token, error, done.
-    • Uses generate_text_stream_async() for real-time token delivery.
-
-
-4. FEAT — SSE Streaming Endpoint for Study Buddy Chat
-──────────────────────────────────────────────────────────────
-  Files:    app/modules/study_buddy/service.py
-            app/modules/study_buddy/router.py
-
-  Changes:
-    • service.py:
-        - Added STUDY_BUDDY_STREAM_PROMPT — clean prompt without
-          JSON output constraint.
-        - Added chat_stream() async generator — pre-work (save
-          message, search context, build prompt), stream tokens,
-          buffer full reply, follow-up _extract_suggestions() for
-          journal/quiz metadata, save assistant message.
-        - Added _EXTRACT_SUGGESTIONS_PROMPT + _extract_suggestions()
-          — lightweight follow-up Gemini call for metadata.
-    • router.py:
-        - Added POST /{session_id}/chat/stream — SSE endpoint.
-        - Event types: token (text chunks), metadata (journal +
-          quiz suggestions), done, error.
-
-
-5. FIX — Redis Client Robustness
+2. FEAT — Admin Features Expansion
 ──────────────────────────────────────────────
-  File:    app/db/redis_client.py
+  Files:
+    app/modules/auth/deps.py
+    app/modules/users/router.py
+    app/modules/users/service.py
+    app/modules/rag_evaluation/service.py
+    app/modules/rag_evaluation/router.py
 
   Changes:
-    • Removed dead _SERIALISABLE_TYPES constant (unused).
-    • Fixed _fallback_del to strip trailing "*" before startswith
-      matching — prevents incorrect cache flush.
-    • Fixed _deserialise to return None on JSON parse failure
-      instead of raw string — ensures proper cache-miss behaviour.
+    • POST /users/ now guarded with require_admin — admins can create users
+    • Replaced DELETE /users/{user_id} with POST /users/{user_id}/deactivate
+      (admin-only, sets is_active=false instead of hard delete)
+    • GET /users/{user_id}, PATCH /users/{user_id} now use
+      require_admin_or_own_user — admins can read/update any user
+    • Added admin RAG evaluation endpoints:
+        - GET /rag-evaluations/admin/stats    — system-wide RAG quality metrics
+        - GET /rag-evaluations/admin/         — list all users' evaluations
+          (filterable by user_id, min_rating)
+    • Updated reset.py: seeds both admin (admin@cuton.app) and
+      regular user (test@cuton.app); added --clear-only flag
+
+
+3. FEAT — Forgot Password with Brevo Email
+──────────────────────────────────────────────────────────────
+  Files:
+    app/core/config.py
+    app/core/email.py              (NEW)
+    app/db/schema.py
+    app/db/client.py
+    app/modules/auth/dto.py
+    app/modules/auth/service.py
+    app/modules/auth/router.py
+    requirements.txt
+    .env.example
+
+  Changes:
+    • New env vars: BREVO_API_KEY, EMAIL_FROM_ADDRESS, EMAIL_FROM_NAME,
+      RESET_TOKEN_EXPIRE_MINUTES (default 60), FRONTEND_URL
+    • New app/core/email.py — Brevo transactional email service with
+      styled HTML template, lazy client initialisation
+    • New PasswordResetTokenDocument in db/schema.py — stores SHA-256
+      hashed reset tokens with expiry; TTL index auto-cleans expired docs
+    • password_reset_tokens collection wired into DatabaseClient with
+      unique hash + user_id + TTL indexes
+    • New DTOs: ForgotPasswordRequest, ResetPasswordRequest, MessageResponse
+    • AuthService.forgot_password() — generates secrets.token_urlsafe(32),
+      SHA-256 hashes, emails reset link via Brevo; prevents email enumeration
+    • AuthService.reset_password() — validates token (not used, not expired),
+      updates password, marks token used
+    • POST /auth/forgot-password (3/min) and POST /auth/reset-password (5/min)
+    • Added sib-api-v3-sdk==7.6.0 to requirements.txt
+    • .env.example created with all required env vars
+
+
+4. REFACTOR — All Hardcoded Config Values → Env Vars
+──────────────────────────────────────────────────────────────
+  Files:
+    app/core/config.py
+    app/core/email.py
+    app/db/redis_client.py
+    app/modules/dashboard/service.py
+    app/tasks/embeddings.py
+    app/tasks/documents.py
+    app/main.py
+    .env.example
+
+  New env vars added:
+    • CELERY_RETRY_BACKOFF_MAX_SEC    (was hardcoded 3600 in tasks)
+    • REDIS_MAX_CONNECTIONS           (was hardcoded 10 in redis_client)
+    • REDIS_SOCKET_TIMEOUT_SEC        (was hardcoded 2)
+    • REDIS_SOCKET_CONNECT_TIMEOUT_SEC (was hardcoded 2)
+    • RATE_LIMIT_RETRY_AFTER_SEC      (was hardcoded "60" in main.py)
+    • CACHE_TTL_SUMMARY_SEC           (was hardcoded 30)
+    • CACHE_TTL_LEARNING_SEC          (was hardcoded 60)
+    • CACHE_TTL_QUIZ_SEC              (was hardcoded 300)
+    • CACHE_TTL_RAG_SEC               (was hardcoded 300)
+    • CACHE_TTL_ACTIVITY_SEC          (was hardcoded 30)
+
+  Changes:
+    • Email template now dynamically shows {settings.reset_token_expire_minutes}
+    • Redis connection pool uses settings for max_connections, timeouts
+    • Dashboard cache TTLs read from settings instead of hardcoded dict
+    • Celery tasks use settings.celery_retry_backoff_max_sec
+    • main.py Retry-After header uses settings.rate_limit_retry_after_sec
+    • All imports at top of files — no inline imports
+
+
+5. FIX — Async Blocking & Code Hygiene
+──────────────────────────────────────────────
+  Files:
+    app/modules/auth/service.py
+    app/modules/dashboard/service.py
+    app/modules/auth/deps.py
+
+  Changes:
+    • Brevo email call wrapped in asyncio.to_thread() — prevents
+      blocking the event loop during forgot-password flow
+    • Fixed logging import in auth/service.py (was using inline
+      __import__() hack, now proper import logging at top)
+    • Fixed import placement in dashboard/service.py (moved inline
+      import to top of file with other imports)
+    • require_admin_or_own_user guard added to deps.py

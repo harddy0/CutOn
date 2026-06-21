@@ -9,6 +9,7 @@ from bson.errors import InvalidId
 from fastapi import HTTPException
 from google import genai
 from pymongo.asynchronous.collection import AsyncCollection
+from pymongo.asynchronous.cursor import AsyncCursor
 
 from app.core.config import settings
 from app.core.genai_adapter import generate_text_async, get_client, with_thinking
@@ -157,7 +158,7 @@ class QueryService:
         norm_b = sum(x * x for x in b) ** 0.5
         if norm_a * norm_b == 0:
             return 0.0
-        return dot / (norm_a * norm_b)
+        return dot / (norm_a * norm_b)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------ search
 
@@ -203,7 +204,7 @@ class QueryService:
         # 3. Concurrent searches --------------------------------------------
 
         async def _search_chunks() -> list[QueryResultItem]:
-            pipeline = [
+            pipeline: list[dict] = [
                 {
                     "$vectorSearch": {
                         "index": VECTOR_INDEX_CHUNKS,
@@ -235,7 +236,7 @@ class QueryService:
                     }
                 },
             ]
-            cursor = await self._chunks_collection.aggregate(pipeline)
+            cursor = await self._chunks_collection.aggregate(pipeline)  # type: ignore[assignment]
             results: list[QueryResultItem] = []
             async for doc in cursor:
                 results.append(
@@ -255,7 +256,7 @@ class QueryService:
 
         async def _search_journals() -> list[QueryResultItem]:
             # ── Primary: vector search ─────────────────────────────────
-            pipeline = [
+            pipeline: list[dict] = [
                 {
                     "$vectorSearch": {
                         "index": VECTOR_INDEX_JOURNALS,
@@ -275,7 +276,7 @@ class QueryService:
                     }
                 },
             ]
-            cursor = await self._journals_collection.aggregate(pipeline)
+            cursor = await self._journals_collection.aggregate(pipeline)  # type: ignore[assignment]
             seen_ids: set[str] = set()
             results: list[QueryResultItem] = []
             async for doc in cursor:
@@ -302,7 +303,7 @@ class QueryService:
                 if seen_ids:
                     fallback_filter["_id"] = {"$nin": list(seen_ids)}
                 cursor = (
-                    self._journals_collection.find(fallback_filter)
+                    self._journals_collection.find(fallback_filter)  # type: ignore[assignment]
                     .sort("created_at", -1)
                     .limit(missing)
                 )

@@ -203,6 +203,20 @@ class RAGEvaluationDocument(BaseDocument):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PasswordResetTokenDocument(BaseDocument):
+    """Stores hashed password reset tokens with expiry.
+
+    The raw token is sent to the user via email; only the SHA-256
+    hash is persisted.  A TTL index on ``expires_at`` automatically
+    cleans up expired documents.
+    """
+    user_id: MongoObjectId
+    token_hash: str  # SHA-256 hex digest of the raw token
+    expires_at: datetime
+    used: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class AuditLogDocument(BaseDocument):
     user_id: MongoObjectId
     action: str

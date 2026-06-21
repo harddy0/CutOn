@@ -51,7 +51,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRe
     return JSONResponse(
         status_code=429,
         content={"detail": "Too many requests. Please try again later."},
-        headers={"Retry-After": "60"},
+        headers={"Retry-After": str(settings.rate_limit_retry_after_sec)},
     )
 
 # -- CORS (allow all origins for now, lock down in production) --

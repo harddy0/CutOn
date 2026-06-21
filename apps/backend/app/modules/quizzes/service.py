@@ -533,7 +533,7 @@ class QuizzesService:
                 num_questions,
             )
 
-        return quiz_data
+        return quiz_data  # type: ignore[no-any-return]
 
     # ══════════════════════════════════════════════════════════════════
     # Quiz response builder (shared between modes)

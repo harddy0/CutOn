@@ -1,11 +1,12 @@
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.db.client import DatabaseClient
 from app.modules.auth.deps import require_user
+from app.modules.auth.limiter import limiter
 from app.modules.study_buddy.dto import (
     ChatRequest,
     ChatResponse,
@@ -43,7 +44,9 @@ async def create_session(
 
 
 @router.post("/{session_id}/chat", response_model=ChatResponse)
+@limiter.limit("20/minute")
 async def chat(
+    request: Request,
     session_id: str,
     payload: ChatRequest,
     service: StudyBuddyService = Depends(get_study_buddy_service),
@@ -65,7 +68,9 @@ async def chat(
 
 
 @router.post("/{session_id}/chat/stream")
+@limiter.limit("20/minute")
 async def chat_stream(
+    request: Request,
     session_id: str,
     payload: ChatRequest,
     service: StudyBuddyService = Depends(get_study_buddy_service),

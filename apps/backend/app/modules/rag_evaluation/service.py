@@ -192,7 +192,7 @@ class RAGEvaluationService:
         )
 
         # Average latency
-        pipeline_latency = [
+        pipeline_latency: list[dict] = [
             {"$match": {"user_id": ObjectId(user_id)}},
             {"$group": {"_id": None, "avg_latency": {"$avg": "$latency_ms"}}},
         ]
@@ -201,7 +201,7 @@ class RAGEvaluationService:
         avg_latency = latency_result[0]["avg_latency"] if latency_result else 0.0
 
         # Average faithfulness
-        pipeline_faith = [
+        pipeline_faith: list[dict] = [
             {"$match": {"user_id": ObjectId(user_id), "faithfulness_score": {"$ne": None}}},
             {"$group": {"_id": None, "avg_faith": {"$avg": "$faithfulness_score"}}},
         ]
@@ -210,7 +210,7 @@ class RAGEvaluationService:
         avg_faithfulness = faith_result[0]["avg_faith"] if faith_result else None
 
         # Source breakdown
-        pipeline_sources = [
+        pipeline_sources: list[dict] = [
             {"$match": {"user_id": ObjectId(user_id)}},
             {"$group": {"_id": "$answer_source", "count": {"$sum": 1}}},
         ]
@@ -298,6 +298,101 @@ class RAGEvaluationService:
         except (ValueError, Exception) as exc:
             logger.warning("Faithfulness eval error: %s", exc)
             return None
+
+    # ------------------------------------------------------------------
+    # Admin — all users
+    # ------------------------------------------------------------------
+
+    async def get_admin_stats(self) -> RAGStatsResponse:
+        """Get aggregate RAG quality metrics across **all** users.
+
+        Admin-only.  Same shape as ``get_stats()`` but unfiltered.
+        """
+        coll = self._evaluations_collection
+
+        total = await coll.count_documents({})
+
+        if total == 0:
+            return RAGStatsResponse(
+                total_queries=0, total_rated=0, positive_rate=0.0,
+                negative_rate=0.0, avg_latency_ms=0.0, avg_faithfulness=None,
+                queries_with_answer=0, no_answer_count=0, source_breakdown={},
+            )
+
+        rated_count = await coll.count_documents({"user_rating": {"$ne": None}})
+        positive_count = await coll.count_documents({"user_rating": 1})
+        negative_count = await coll.count_documents({"user_rating": -1})
+
+        # Average latency
+        pipeline_latency: list[dict] = [{"$group": {"_id": None, "avg_latency": {"$avg": "$latency_ms"}}}]
+        latency_cursor = await coll.aggregate(pipeline_latency)
+        latency_result = await latency_cursor.to_list(length=1)
+        avg_latency = latency_result[0]["avg_latency"] if latency_result else 0.0
+
+        # Average faithfulness
+        pipeline_faith: list[dict] = [
+            {"$match": {"faithfulness_score": {"$ne": None}}},
+            {"$group": {"_id": None, "avg_faith": {"$avg": "$faithfulness_score"}}},
+        ]
+        faith_cursor = await coll.aggregate(pipeline_faith)
+        faith_result = await faith_cursor.to_list(length=1)
+        avg_faithfulness = faith_result[0]["avg_faith"] if faith_result else None
+
+        # Source breakdown
+        pipeline_sources: list[dict] = [
+            {"$group": {"_id": "$answer_source", "count": {"$sum": 1}}},
+        ]
+        source_cursor = await coll.aggregate(pipeline_sources)
+        source_breakdown: dict[str, int] = {}
+        async for doc in source_cursor:
+            source_breakdown[str(doc["_id"])] = doc["count"]
+
+        no_answer = await coll.count_documents({"answer": ""})
+
+        positive_rate = (positive_count / rated_count * 100) if rated_count > 0 else 0.0
+        negative_rate = (negative_count / rated_count * 100) if rated_count > 0 else 0.0
+
+        return RAGStatsResponse(
+            total_queries=total,
+            total_rated=rated_count,
+            positive_rate=round(positive_rate, 1),
+            negative_rate=round(negative_rate, 1),
+            avg_latency_ms=round(avg_latency, 1),
+            avg_faithfulness=round(avg_faithfulness, 4) if avg_faithfulness else None,
+            queries_with_answer=total - no_answer,
+            no_answer_count=no_answer,
+            source_breakdown=source_breakdown,
+        )
+
+    async def list_admin_evaluations(
+        self,
+        user_id: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 50,
+        min_rating: Optional[int] = None,
+    ) -> list[RAGEvaluationResponse]:
+        """List evaluations across all users, optionally filtered.
+
+        Admin-only.  Pass ``user_id`` to scope to a single user.
+        """
+        query: dict = {}
+        if user_id is not None:
+            try:
+                query["user_id"] = ObjectId(user_id)
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid user_id format")
+        if min_rating is not None:
+            query["user_rating"] = min_rating
+
+        cursor = (
+            self._evaluations_collection
+            .find(query)
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+
+        return [self._format_eval(doc) async for doc in cursor]
 
     # ------------------------------------------------------------------
     # Helper

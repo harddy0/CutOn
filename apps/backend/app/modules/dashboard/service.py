@@ -7,6 +7,7 @@ from pymongo.asynchronous.collection import AsyncCollection
 from app.db.client import DatabaseClient
 from app.db.redis_client import RedisClient
 from app.modules.audit.service import AuditService
+from app.core.config import settings
 from app.modules.dashboard.dto import (
     DashboardActivityResponse,
     DashboardLearningResponse,
@@ -19,19 +20,19 @@ from app.modules.dashboard.dto import (
 # ---------------------------------------------------------------------------
 # Tiered TTL configuration (seconds per cache category)
 #
-#   Summary  (topics, sources, sessions, notifications)  →  30 s
-#   Learning (journals, chunks, embedding status)        →  60 s
-#   Quizzes  (total + avg score)                         →  5 min
-#   RAG      (queries + rating rate)                     →  5 min
-#   Activity (recent audit logs)                         →  30 s
+#   Summary  (topics, sources, sessions, notifications)  →  CACHE_TTL_SUMMARY_SEC
+#   Learning (journals, chunks, embedding status)        →  CACHE_TTL_LEARNING_SEC
+#   Quizzes  (total + avg score)                         →  CACHE_TTL_QUIZ_SEC
+#   RAG      (queries + rating rate)                     →  CACHE_TTL_RAG_SEC
+#   Activity (recent audit logs)                         →  CACHE_TTL_ACTIVITY_SEC
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL: dict[str, int] = {
-    "summary": 30,
-    "learning": 60,
-    "quiz": 300,  # 5 minutes
-    "rag": 300,  # 5 minutes
-    "activity": 30,
+    "summary": settings.cache_ttl_summary_sec,
+    "learning": settings.cache_ttl_learning_sec,
+    "quiz": settings.cache_ttl_quiz_sec,
+    "rag": settings.cache_ttl_rag_sec,
+    "activity": settings.cache_ttl_activity_sec,
 }
 
 
@@ -315,7 +316,7 @@ class DashboardService:
 
     async def _compute_avg_quiz_score(self, user_oid: ObjectId) -> float:
         """Return the average score percentage across all quiz attempts."""
-        pipeline = [
+        pipeline: list[dict] = [
             {"$match": {"user_id": user_oid}},
             {
                 "$group": {

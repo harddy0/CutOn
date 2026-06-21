@@ -6,5 +6,10 @@ def _ip_key(request):
 
 
 # Single shared Limiter instance — used by the SlowAPIMiddleware in main.py
-# and by the @limiter.limit() decorator on the login endpoint.
-limiter = Limiter(key_func=_ip_key)
+# and by the @limiter.limit() decorator.
+# `default_limits` applies a global cap across **all** endpoints as a safety net.
+# Per-endpoint overrides (e.g. login at 10/min, query at 30/min) take precedence.
+limiter = Limiter(
+    key_func=_ip_key,
+    default_limits=["60/minute"],
+)

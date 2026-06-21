@@ -1,12 +1,13 @@
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
 from app.core.genai_adapter import generate_text_stream_async, with_thinking
 from app.db.client import DatabaseClient
 from app.modules.auth.deps import require_user
+from app.modules.auth.limiter import limiter
 from app.modules.query.dto import QueryRequest, QueryResponse
 from app.modules.query.service import CONTEXT_SYNTHESIS_PROMPT, QueryService
 from app.modules.users.dto import UserResponse
@@ -19,7 +20,9 @@ def get_query_service() -> QueryService:
 
 
 @router.post("/", response_model=QueryResponse)
+@limiter.limit("30/minute")
 async def search_knowledge(
+    request: Request,
     payload: QueryRequest,
     service: QueryService = Depends(get_query_service),
     current_user: UserResponse = Depends(require_user),
@@ -49,7 +52,9 @@ async def search_knowledge(
 
 
 @router.post("/stream")
+@limiter.limit("30/minute")
 async def search_knowledge_stream(
+    request: Request,
     payload: QueryRequest,
     service: QueryService = Depends(get_query_service),
     current_user: UserResponse = Depends(require_user),

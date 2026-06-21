@@ -835,7 +835,7 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
         top_k_journals = 12  # Journal entries — more, catch low-match personal notes
 
         # ── Search chunks (keep top_k tight — docs are supplementary) ────
-        chunk_pipeline = [
+        chunk_pipeline: list[dict] = [
             {
                 "$vectorSearch": {
                     "index": VECTOR_INDEX_CHUNKS,
@@ -873,7 +873,7 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
             )
 
         # ── Search journals (wider net + recent fallback) ───────────────
-        journal_pipeline = [
+        journal_pipeline: list[dict] = [
             {
                 "$vectorSearch": {
                     "index": VECTOR_INDEX_JOURNALS,
@@ -976,6 +976,7 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
                 best_match = (score, topic)
 
         assert best_match is not None
+        assert isinstance(best_match[1]["_id"], ObjectId)
         return best_match[1]["_id"]
 
     # ------------------------------------------------------------------
@@ -1018,4 +1019,4 @@ If nothing is journal-worthy or quiz-worthy, return null values."""
         norm_b = sum(x * x for x in b) ** 0.5
         if norm_a * norm_b == 0:
             return 0.0
-        return dot / (norm_a * norm_b)
+        return dot / (norm_a * norm_b)  # type: ignore[no-any-return]

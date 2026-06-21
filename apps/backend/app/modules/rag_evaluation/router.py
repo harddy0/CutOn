@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from app.db.client import DatabaseClient
-from app.modules.auth.deps import require_user
+from app.modules.auth.deps import require_admin, require_user
 from app.modules.rag_evaluation.dto import (
     RAGEvaluationResponse,
     RAGStatsResponse,
@@ -63,3 +63,43 @@ async def rate_answer(
     Optionally include ``feedback`` text.
     """
     return await service.rate_answer(eval_id, current_user.id, payload)
+
+
+# ---------------------------------------------------------------------------
+# Admin-only — system-wide RAG quality monitoring
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/stats", response_model=RAGStatsResponse)
+async def get_admin_rag_stats(
+    service: RAGEvaluationService = Depends(get_rag_eval_service),
+    _: UserResponse = Depends(require_admin),
+):
+    """Get RAG quality metrics across **all** users.
+
+    Admin-only.  Returns the same aggregate stats as the user-level
+    endpoint but unfiltered — total queries, rating rates, average
+    latency, average faithfulness, and source breakdown for the
+    entire system.
+    """
+    return await service.get_admin_stats()
+
+
+@router.get("/admin/", response_model=list[RAGEvaluationResponse])
+async def list_admin_evaluations(
+    user_id: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    min_rating: Optional[int] = None,
+    service: RAGEvaluationService = Depends(get_rag_eval_service),
+    _: UserResponse = Depends(require_admin),
+):
+    """List RAG evaluations across all users (admin only).
+
+    Optionally filter by ``user_id`` to scope to a single user,
+    or ``min_rating`` (1 for thumbs up, -1 for thumbs down) to
+    see only positively or negatively rated interactions.
+    """
+    return await service.list_admin_evaluations(
+        user_id=user_id, skip=skip, limit=limit, min_rating=min_rating
+    )
