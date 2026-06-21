@@ -44,11 +44,10 @@ export async function getDashboardRag(): Promise<DashboardRagResponse> {
 export async function getDashboardActivity(
   limit?: number,
 ): Promise<DashboardActivityResponse> {
-  const params = limit ? `?limit=${limit}` : "";
-  return api.get<DashboardActivityResponse>(
-    `/api/v1/dashboard/activity${params}`,
-    { auth: true },
-  );
+  return api.get<DashboardActivityResponse>("/api/v1/dashboard/activity", {
+    auth: true,
+    params: { limit },
+  });
 }
 
 // ---------------------------------------------------------------------------

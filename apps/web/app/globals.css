@@ -159,3 +159,25 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* ── Custom thin scrollbar (study buddy chat area) ── */
+.chat-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: #D4E2DE;
+  border-radius: 3px;
+  border: 1px solid #1A1A1A;
+}
+.chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #5C6B6B;
+}
+
+/* Firefox */
+.chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #D4E2DE transparent;
+}

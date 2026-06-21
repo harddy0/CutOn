@@ -1,4 +1,5 @@
-export { api, ApiError } from "./client";
+export { api, ApiError, fetchStream } from "./client";
+export type { SseEvent } from "./client";
 export { getAccessToken, setAccessToken, clearAccessToken } from "./config";
 export { login, register, getMe } from "./auth";
 export type { LoginResult, RegisterResult } from "./auth";
@@ -40,6 +41,7 @@ export {
   deleteStudySession,
   chatSend,
   confirmJournal,
+  chatSendStream,
 } from "./study";
 export type { ListStudySessionsParams } from "./study";
 
@@ -71,5 +73,5 @@ export type {
   GradedAnswerResponse,
 } from "./dto/quiz";
 
-export { searchQuery } from "./query";
+export { searchQuery, searchQueryStream } from "./query";
 export type { QueryRequest, QueryResponse, QueryResultItem } from "./dto/query";

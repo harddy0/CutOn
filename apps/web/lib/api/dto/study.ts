@@ -33,7 +33,6 @@ export interface StudySessionResponse {
 
 export interface StudyMessageResponse {
   id: string;
-  session_id?: string;
   role: string; // "user" | "assistant"
   content: string;
   metadata: Record<string, unknown>;
