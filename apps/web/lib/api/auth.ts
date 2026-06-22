@@ -74,3 +74,41 @@ export async function register(data: RegisterRequest): Promise<RegisterResult> {
 export async function getMe(): Promise<UserResponse> {
   return api.get<UserResponse>("/api/v1/auth/me", { auth: true });
 }
+
+
+// ---------------------------------------------------------------------------
+// Forgot password
+// ---------------------------------------------------------------------------
+
+export interface ForgotPasswordRequest {
+  email: string;
+  base_url: string;
+}
+
+/**
+ * Initiate a password reset flow.
+ * Sends a reset link to the user's email via Brevo.
+ */
+export async function forgotPassword(data: ForgotPasswordRequest): Promise<{ message: string }> {
+  return api.post<{ message: string }>("/api/v1/auth/forgot-password", {
+    body: data,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Reset password
+// ---------------------------------------------------------------------------
+
+export interface ResetPasswordRequest {
+  token: string;
+  new_password: string;
+}
+
+/**
+ * Complete a password reset using the token from the email link.
+ */
+export async function resetPassword(data: ResetPasswordRequest): Promise<{ message: string }> {
+  return api.post<{ message: string }>("/api/v1/auth/reset-password", {
+    body: data,
+  });
+}

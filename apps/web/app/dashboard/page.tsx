@@ -8,6 +8,7 @@ import {
   getDashboardQuizzes,
   getDashboardRag,
   searchQuery,
+  rateAnswer,
   ApiError,
 } from "@/lib/api";
 import type {
@@ -127,6 +128,8 @@ export default function DashboardPage() {
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState(false);
+  const [ratedQueries, setRatedQueries] = useState<Set<string>>(new Set());
+  const [currentEvalId, setCurrentEvalId] = useState<string | null>(null);
 
   // ── Error ──
   const [error, setError] = useState<string | null>(null);
@@ -191,6 +194,7 @@ export default function DashboardPage() {
       const res = await searchQuery({ query: q, top_k: 7, synthesize: true });
       setQueryResults(res.results);
       setQueryAnswer(res.answer);
+      setCurrentEvalId(res.evaluation_id ?? null);
     } catch (err: unknown) {
       setQueryError(extractErrorMessage(err));
     } finally {
@@ -327,7 +331,43 @@ export default function DashboardPage() {
                 {/* Synthesized answer */}
                 {queryAnswer && (
                   <div className="mb-3 rounded-[4px] border-2 border-ink bg-gradient-to-br from-green-start/40 to-green-end/20 p-3.5">
-                    <span className="text-[10px] font-mono font-bold text-green-accent uppercase tracking-wider">Answer</span>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-mono font-bold text-green-accent uppercase tracking-wider">Answer</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={async () => {
+                            if (currentEvalId) {
+                              try {
+                                await rateAnswer(currentEvalId, { rating: 1 });
+                                setRatedQueries((prev) => new Set(prev).add(currentEvalId));
+                              } catch {}
+                            }
+                          }}
+                          className="w-6 h-6 flex items-center justify-center rounded-[2px] border border-transparent hover:border-green-accent hover:bg-green-start/20 transition-all text-ink-muted hover:text-green-accent"
+                          title="Helpful"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M6 1.5l1.5 3.5 4 .5-3 3 1 4L6 10l-3.5 2.5 1-4-3-3 4-.5L6 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (currentEvalId) {
+                              try {
+                                await rateAnswer(currentEvalId, { rating: -1 });
+                                setRatedQueries((prev) => new Set(prev).add(currentEvalId));
+                              } catch {}
+                            }
+                          }}
+                          className="w-6 h-6 flex items-center justify-center rounded-[2px] border border-transparent hover:border-red-400 hover:bg-red-50 transition-all text-ink-muted hover:text-red-500"
+                          title="Not helpful"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M6 10.5l-1.5-3.5-4-.5 3-3-1-4L6 2l3.5-2.5-1 4 3 3-4 .5L6 10.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                     <p className="text-sm font-medium text-ink/85 leading-relaxed mt-1 whitespace-pre-wrap">{queryAnswer}</p>
                   </div>
                 )}

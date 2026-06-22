@@ -347,9 +347,10 @@ class QueryService:
         # Calculate latency
         latency_ms = int((time.monotonic() - _start) * 1000)
 
-        # 7. Auto-log RAG evaluation (fire-and-forget) -----------------------
+        # 7. Auto-log RAG evaluation -----------------------
+        evaluation_id: Optional[str] = None
         try:
-            await self._log_rag_evaluation(
+            evaluation_id = await self._log_rag_evaluation(
                 user_id=user_id,
                 query=payload.query,
                 answer=answer or "",
@@ -359,7 +360,12 @@ class QueryService:
         except Exception as exc:
             logger.warning("Failed to log RAG evaluation: %s", exc)
 
-        return QueryResponse(query=payload.query, results=all_results, answer=answer)
+        return QueryResponse(
+            query=payload.query,
+            results=all_results,
+            answer=answer,
+            evaluation_id=evaluation_id,
+        )
 
     # ------------------------------------------------------------------ RAG evaluation
 
@@ -370,13 +376,17 @@ class QueryService:
         answer: str,
         results: list[QueryResultItem],
         latency_ms: int,
-    ) -> None:
-        """Auto-log the RAG interaction for quality tracking."""
+    ) -> str:
+        """Auto-log the RAG interaction for quality tracking.
+
+        Returns the evaluation ID so it can be returned to the frontend
+        for thumbs up/down rating.
+        """
         chunks_for_eval = [
             {"text": r.text, "score": r.score, "source_type": r.source_type}
             for r in results[:5]  # Top 5 chunks
         ]
-        await self._rag_eval.log_evaluation(
+        return await self._rag_eval.log_evaluation(
             user_id=user_id,
             query=query,
             answer=answer or "",

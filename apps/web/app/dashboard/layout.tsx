@@ -4,7 +4,8 @@ import { useCallback, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { BrainLogo } from "@/components/icons/brain-logo";
-import { clearAccessToken, getMe } from "@/lib/api";
+import { clearAccessToken, getMe, getUnreadNotificationCount, listNotifications, markNotificationRead, markAllNotificationsRead } from "@/lib/api";
+import type { NotificationResponse } from "@/lib/api";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: "grid" },
@@ -71,12 +72,26 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<NotificationResponse[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifAnchor, setNotifAnchor] = useState<HTMLElement | null>(null);
 
   // Fetch user role to conditionally show admin nav
   useEffect(() => {
     getMe()
       .then((user) => setUserRole(user.role))
       .catch(() => setUserRole(null));
+  }, []);
+
+  // Fetch notifications
+  useEffect(() => {
+    getUnreadNotificationCount()
+      .then((count) => setUnreadCount(count))
+      .catch(() => {});
+    listNotifications({ limit: 5 })
+      .then(setNotifications)
+      .catch(() => {});
   }, []);
 
   const allNavItems =
@@ -166,6 +181,86 @@ export default function DashboardLayout({
                   </Link>
                 );
               })}
+            </div>
+
+            {/* Notification bell */}
+            <div className="relative">
+              <button
+                onClick={(e) => { setNotifOpen(!notifOpen); setNotifAnchor(e.currentTarget); }}
+                className="relative flex items-center justify-center w-9 h-9 rounded-[4px] border-2 border-transparent hover:border-border-subtle hover:bg-card-hover active:translate-x-[1px] active:translate-y-[1px] transition-all"
+                aria-label="Notifications"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 1.5A4.5 4.5 0 003.5 6v2l-1.5 3h12l-1.5-3V6A4.5 4.5 0 008 1.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                  <path d="M6 12.5a2 2 0 004 0" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                </svg>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-red-500 border border-ink text-[8px] font-black text-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
+                  <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-surface border-2 border-ink rounded-[4px] shadow-hard overflow-hidden">
+                    <div className="px-3 py-2 border-b border-border-subtle flex items-center justify-between">
+                      <span className="text-[10px] font-mono font-bold text-ink-muted uppercase tracking-wider">Notifications</span>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={async () => {
+                            await markAllNotificationsRead();
+                            setUnreadCount(0);
+                            setNotifications([]);
+                          }}
+                          className="text-[10px] font-mono font-bold text-ink-muted hover:text-ink underline underline-offset-2 transition-colors"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-72 overflow-y-auto">
+                      {notifications.length === 0 ? (
+                        <div className="px-3 py-6 text-center">
+                          <p className="text-xs font-mono text-ink-muted/60">No notifications yet</p>
+                        </div>
+                      ) : (
+                        notifications.slice(0, 10).map((n) => (
+                          <div
+                            key={n.id}
+                            className={`px-3 py-2.5 border-b border-border-subtle last:border-b-0 hover:bg-card-hover transition-colors ${!n.is_read ? 'bg-green-start/10' : ''}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-ink truncate">{n.title}</p>
+                                <p className="text-[11px] font-medium text-ink-muted/80 line-clamp-2 mt-0.5">{n.message}</p>
+                                <p className="text-[9px] font-mono text-ink-muted/40 mt-1">
+                                  {new Date(n.created_at).toLocaleDateString()}
+                                </p>
+                              </div>
+                              {!n.is_read && (
+                                <button
+                                  onClick={async () => {
+                                    await markNotificationRead(n.id);
+                                    setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, is_read: true } : x));
+                                    setUnreadCount((prev) => Math.max(0, prev - 1));
+                                  }}
+                                  className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full border border-border-subtle text-ink-muted hover:text-ink hover:border-ink transition-colors"
+                                  title="Mark as read"
+                                >
+                                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                                    <path d="M1.5 4l1.5 1.5L6.5 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Right: Logout */}

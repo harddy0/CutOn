@@ -1,8 +1,11 @@
-export { api, ApiError, fetchStream } from "./client";
+export { api, ApiError } from "./client";
 export type { SseEvent } from "./client";
 export { getAccessToken, setAccessToken, clearAccessToken } from "./config";
 export { login, register, getMe } from "./auth";
 export type { LoginResult, RegisterResult } from "./auth";
+export { forgotPassword, resetPassword } from "./auth";
+export type { ForgotPasswordRequest, ResetPasswordRequest } from "./auth";
+
 export type * from "./dto";
 
 export {
@@ -41,7 +44,7 @@ export {
   deleteStudySession,
   chatSend,
   confirmJournal,
-  chatSendStream,
+
 } from "./study";
 export type { ListStudySessionsParams } from "./study";
 
@@ -80,6 +83,12 @@ export {
   updateUser,
   deactivateUser,
 } from "./users";
+
+export { listNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead } from "./notifications";
+export type { ListNotificationsParams, NotificationResponse } from "./notifications";
+
+export { getRagStats, listRagEvaluations, rateAnswer } from "./rag-evaluation";
+export type { ListRagEvaluationsParams } from "./rag-evaluation";
 export type { ListUsersParams } from "./users";
 
 export {
