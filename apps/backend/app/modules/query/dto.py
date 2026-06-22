@@ -22,3 +22,4 @@ class QueryResponse(BaseModel):
     query: str
     results: list[QueryResultItem]
     answer: Optional[str] = None
+    evaluation_id: Optional[str] = None

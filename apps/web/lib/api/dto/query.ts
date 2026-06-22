@@ -25,4 +25,5 @@ export interface QueryResponse {
   query: string;
   results: QueryResultItem[];
   answer: string | null;
+  evaluation_id: string | null;
 }

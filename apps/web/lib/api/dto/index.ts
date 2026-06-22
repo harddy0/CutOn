@@ -60,6 +60,16 @@ export type {
   ConfirmJournalResponse,
 } from "./study";
 
+export type {
+  NotificationResponse,
+} from "./notifications";
+
+export type {
+  RAGEvaluationResponse,
+  RateAnswerRequest,
+  RAGStatsResponse,
+} from "./rag-evaluation";
+
 export interface PaginatedResponse<T> {
   items: T[];
   total: number;

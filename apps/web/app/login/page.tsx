@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BrainLogo } from "@/components/icons/brain-logo";
-import { login, register, ApiError } from "@/lib/api";
+import { login, register, forgotPassword, ApiError } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // Hook that reads search params (must be inside Suspense)
@@ -30,6 +30,8 @@ function LoginForm() {
   const [lastName, setLastName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -71,6 +73,32 @@ function LoginForm() {
     },
     [isRegister, email, password, firstName, lastName, router]
   );
+
+  const handleForgotPassword = useCallback(async () => {
+    if (!email.trim()) {
+      setError("Enter your email address first.");
+      return;
+    }
+    setForgotLoading(true);
+    setError(null);
+    try {
+      await forgotPassword({
+        email,
+        base_url: window.location.origin + "/reset-password",
+      });
+      setForgotSent(true);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(typeof err.detail === "string" ? err.detail : "Request failed");
+      } else {
+        setError("Connection error. Is the server running?");
+      }
+    } finally {
+      setForgotLoading(false);
+    }
+  }, [email]);
+
+  // Show reset confirmation or form
 
   return (
     <div className="min-h-screen bg-canvas flex flex-col lg:flex-row">
@@ -212,6 +240,27 @@ function LoginForm() {
                 className="w-full h-12 px-3.5 bg-surface border-2 border-ink rounded-[4px] text-sm font-medium text-ink placeholder:text-ink-muted/40 focus:outline-none focus:ring-2 focus:ring-green-accent/30 transition-all"
               />
             </div>
+
+            {!isRegister && !forgotSent && (
+              <div className="text-right -mt-2">
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={forgotLoading}
+                  className="text-[11px] font-mono font-bold text-ink-muted hover:text-ink underline underline-offset-2 transition-colors disabled:opacity-40"
+                >
+                  {forgotLoading ? "Sending..." : "Forgot password?"}
+                </button>
+              </div>
+            )}
+
+            {forgotSent && (
+              <div className="rounded-[4px] border-2 border-green-accent bg-green-start/20 p-3">
+                <p className="text-xs font-mono font-bold text-green-accent">
+                  Check your email for a password reset link.
+                </p>
+              </div>
+            )}
 
             {error && (
               <div className="rounded-[4px] border-2 border-red-400 bg-red-50 p-3">

@@ -6,6 +6,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     project_name: str = Field(default="CutOn Backend", validation_alias="PROJECT_NAME")
+
+    # ── Environment & Observability ──────────────────────────────────────
+    environment: str = Field(default="development", validation_alias="ENVIRONMENT")
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+    sentry_dsn: str = Field(default="", validation_alias="SENTRY_DSN")
+    sentry_traces_sample_rate: float = Field(
+        default=0.1, validation_alias="SENTRY_TRACES_SAMPLE_RATE"
+    )
     # ── MongoDB Connection ────────────────────────────────────────────
     # Supports both:
     #   - Local: mongodb://localhost:27017
@@ -114,8 +122,12 @@ class Settings(BaseSettings):
         default=30, validation_alias="CACHE_TTL_ACTIVITY_SEC"
     )
 
-    # CORS
-    cors_origins: str = Field(default="*", validation_alias="CORS_ORIGINS")
+    # CORS — comma-separated list of allowed origins
+    # Default allows the Vite dev server; override for production.
+    # Example: "https://app.cuton.com,https://admin.cuton.com"
+    cors_origins: str = Field(
+        default="http://localhost:5173", validation_alias="CORS_ORIGINS"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
