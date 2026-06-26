@@ -137,12 +137,12 @@ No separate images needed. One build, two run modes.
 
 ### Available env vars at runtime
 
-| Env var | Default | For |
-|---|---|---|
-| `SERVICE` | `api` | `api`, `worker`, or `both` |
-| `UVICORN_WORKERS` | `1` | Number of uvicorn workers |
-| `CELERY_LOGLEVEL` | `info` | Worker log level |
-| `CELERY_QUEUES` | `embeddings` | Celery queues to consume |
+| Env var           | Default      | For                        |
+| ----------------- | ------------ | -------------------------- |
+| `SERVICE`         | `api`        | `api`, `worker`, or `both` |
+| `UVICORN_WORKERS` | `1`          | Number of uvicorn workers  |
+| `CELERY_LOGLEVEL` | `info`       | Worker log level           |
+| `CELERY_QUEUES`   | `embeddings` | Celery queues to consume   |
 
 ---
 
@@ -153,25 +153,25 @@ No separate images needed. One build, two run modes.
 
 ### 1. Web Service (API)
 
-| Setting | Value |
-|---|---|
-| **Source** | Your Git repo |
-| **Build Command** | `docker build -t cuton-backend .` (Render auto-detects Dockerfile) |
-| **Start Command** | (Leave empty — entrypoint handles it) |
-| **Service Type** | Web Service |
-| **Health Check Path** | `/health` |
-| **Environment** | Add all env vars from `.env.example` |
+| Setting               | Value                                                              |
+| --------------------- | ------------------------------------------------------------------ |
+| **Source**            | Your Git repo                                                      |
+| **Build Command**     | `docker build -t cuton-backend .` (Render auto-detects Dockerfile) |
+| **Start Command**     | (Leave empty — entrypoint handles it)                              |
+| **Service Type**      | Web Service                                                        |
+| **Health Check Path** | `/health`                                                          |
+| **Environment**       | Add all env vars from `.env.example`                               |
 
 Render will run the container with default `SERVICE=api`, which starts uvicorn.
 
 ### 2. Worker (Celery)
 
-| Setting | Value |
-|---|---|
-| **Source** | Same repo, same Dockerfile |
-| **Service Type** | Background Worker |
+| Setting           | Value                                 |
+| ----------------- | ------------------------------------- |
+| **Source**        | Same repo, same Dockerfile            |
+| **Service Type**  | Background Worker                     |
 | **Start Command** | (Leave empty — entrypoint handles it) |
-| **Environment** | Add same env vars + `SERVICE=worker` |
+| **Environment**   | Add same env vars + `SERVICE=worker`  |
 
 Render runs the **same Docker image**, but the `SERVICE=worker` env var tells
 the entrypoint to start Celery instead of uvicorn.
@@ -244,22 +244,22 @@ services:
 See `.env.example` for the full list with defaults. Minimum required for
 production:
 
-| Variable | Why it's required |
-|---|---|
-| `MONGO_URI` | Database connection |
-| `GEMINI_API_KEY` | All AI features (query, study buddy, quizzes, embeddings) |
-| `JWT_SECRET` | Auth token signing — generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
-| `CORS_ORIGINS` | Your frontend domain(s), comma-separated |
+| Variable         | Why it's required                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| `MONGO_URI`      | Database connection                                                                               |
+| `GEMINI_API_KEY` | All AI features (query, study buddy, quizzes, embeddings)                                         |
+| `JWT_SECRET`     | Auth token signing — generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `CORS_ORIGINS`   | Your frontend domain(s), comma-separated                                                          |
 
 Important optional ones:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `REDIS_HOST` / `REDIS_URL` | `localhost` / — | Redis for Celery + dashboard cache |
-| `SENTRY_DSN` | — | Error monitoring |
-| `BREVO_API_KEY` | — | Transactional email (forgot password) |
-| `ENVIRONMENT` | `development` | Set to `production` in production |
-| `FRONTEND_URL` | `http://localhost:5173` | Used in password reset emails |
+| Variable                   | Default                 | Purpose                               |
+| -------------------------- | ----------------------- | ------------------------------------- |
+| `REDIS_HOST` / `REDIS_URL` | `localhost` / —         | Redis for Celery + dashboard cache    |
+| `SENTRY_DSN`               | —                       | Error monitoring                      |
+| `BREVO_API_KEY`            | —                       | Transactional email (forgot password) |
+| `ENVIRONMENT`              | `development`           | Set to `production` in production     |
+| `FRONTEND_URL`             | `http://localhost:5173` | Used in password reset emails         |
 
 ---
 
@@ -297,12 +297,12 @@ definitions in [`docs/INDEXES.md`](docs/INDEXES.md).
 
 ### What gets seeded
 
-| Data | Details |
-|---|---|
-| Admin user | `admin@cuton.app` / `AdminPassword123!` |
-| Test user | `test@cuton.app` / `TestPassword123!` |
-| Topic | "React State Management" |
-| Source doc | 3 chunks about useState, useReducer, Context API |
+| Data          | Details                                                 |
+| ------------- | ------------------------------------------------------- |
+| Admin user    | `admin@cuton.app` / `AdminPassword123!`                 |
+| Test user     | `test@cuton.app` / `TestPassword123!`                   |
+| Topic         | "React State Management"                                |
+| Source doc    | 3 chunks about useState, useReducer, Context API        |
 | Journal entry | Personal reflection on useReducer (with real embedding) |
 
 ---
@@ -336,6 +336,7 @@ celery -A app.celery_app worker -Q embeddings --loglevel=info
 ```
 
 The worker processes two task types:
+
 - `generate_journal_embedding` — embeds journal entries
 - `generate_document_chunk_embedding` — embeds document chunks
 
