@@ -1,164 +1,333 @@
-# CutOn Backend
+# CutOn Backend — Operations Guide
 
-AI-powered study companion — a FastAPI backend with RAG (Retrieval-Augmented Generation), vector search, adaptive quizzes, and a conversational study buddy.
+Operations reference for the FastAPI backend. Covers local development, Docker,
+CLI commands, and deployment.
 
-## Features
+---
 
-- **RAG Query Engine** — Dual-index vector search against document chunks AND journal entries with LLM-powered answer synthesis
-- **Study Buddy** — Conversational AI tutor that detects journal-worthy moments and suggests quizzes
-- **Adaptive Quizzes** — Blind-spot detection via vector delta analysis (compares document vs. journal embeddings) + topic review mode
-- **Document Ingestion** — Upload PDF, DOCX, or TXT files; auto-chunking and background embedding via Celery
-- **Journal System** — Personal notes with automatic embedding for semantic search
-- **Dashboard** — Statistics with tiered Redis caching and transparent in-memory fallback
-- **Auth & Security** — JWT authentication, bcrypt password hashing, role-based access (user/admin), rate limiting, forgot-password flow with Brevo email
-- **Audit Logging** — Every operation is logged with actor, action, and resource
-- **Notifications** — In-app notification system
-- **RAG Evaluation** — Quality tracking with user ratings and LLM-as-judge scoring
-- **SSE Streaming** — Real-time token streaming from Gemini for chat and query responses
+## Table of Contents
 
-## Architecture
+- [CLI Quick Reference](#cli-quick-reference)
+- [Local Development](#local-development)
+- [Docker](#docker)
+- [Render Deployment](#render-deployment)
+- [Other Providers](#other-providers)
+- [Environment Variables](#environment-variables)
+- [Database Operations](#database-operations)
+- [Common Tasks](#common-tasks)
 
-```
-apps/backend/
-├── app/
-│   ├── main.py               # FastAPI app entry point
-│   ├── celery_app.py         # Celery configuration
-│   ├── core/                 # Config, security, email, GenAI adapter, DTOs
-│   ├── db/                   # MongoDB client, Redis client, schema, reset
-│   ├── modules/              # Feature modules (auth, users, topics, etc.)
-│   │   ├── auth/             # Register, login, JWT, forgot-password
-│   │   ├── users/            # User CRUD, admin deactivation
-│   │   ├── topics/           # Study topics CRUD
-│   │   ├── journals/         # Journal entries with embedding
-│   │   ├── documents/        # Upload, chunking, embedding pipeline
-│   │   ├── query/            # Hybrid vector search + LLM synthesis
-│   │   ├── quizzes/          # Quiz generation (blind-spot/review), grading
-│   │   ├── study_buddy/      # Conversational AI study buddy
-│   │   ├── dashboard/        # Aggregated stats with Redis cache
-│   │   ├── notifications/    # In-app notifications
-│   │   ├── audit/            # Audit logging
-│   │   ├── rag_evaluation/   # RAG quality metrics
-│   │   └── embeddings/       # Embedding service (shared)
-│   └── tasks/                # Celery background tasks
-├── docs/                     # Documentation
-├── .env.example              # Environment variable template
-├── requirements.txt          # Python dependencies
-└── mypy.ini                  # Type checking configuration
+---
+
+## CLI Quick Reference
+
+```bash
+npm run dev              # Start dev server with hot reload (port 8000)
+npm run dev:worker       # Start Celery worker for background embeddings
+npm run start            # Start production server
+npm run start:worker     # Start production Celery worker
+npm run db:reset         # Drop all data + reseed with sample records
+npm run db:indexes       # Create Atlas Search vector indexes (M2+ clusters)
 ```
 
-**Key design decisions:**
-- Modular monolith — each feature is a self-contained module with router/service/DTO
-- Async everything — FastAPI async handlers, async MongoDB driver, thread-pooled AI calls
-- MongoDB Atlas Vector Search — native $vectorSearch for semantic retrieval
-- Celery background workers — non-blocking embedding generation with exponential backoff
-- Redis caching — tiered TTLs by data category with zero-downtime in-memory fallback
+All scripts assume a Windows environment with `.venv`. On Linux/Mac, replace
+`.venv\\Scripts\\activate.bat` with `source .venv/bin/activate`.
 
-## Quick Start
+---
+
+## Local Development
 
 ### Prerequisites
-- Python 3.12+
+
+- Python 3.13+
 - MongoDB (local or Atlas)
 - Redis (local or cloud, e.g. Upstash)
-- Google AI Studio API key
-- (Optional) Brevo API key for transactional email
+- Google AI Studio API key (for Gemini)
 
-### 1. Set up Python environment
+### Setup
+
 ```bash
-git clone <repo-url>
-cd apps/backend
+# 1. Create virtual environment
 python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-.venv\Scripts\activate     # Windows
+source .venv/bin/activate          # Linux/Mac
+.venv\Scripts\activate             # Windows
+
+# 2. Install dependencies
 pip install -r requirements.txt
+
+# 3. Configure environment
+cp .env.example .env               # Linux/Mac
+copy .env.example .env             # Windows
+# Edit .env — set at minimum: GEMINI_API_KEY, MONGO_URI
+
+# 4. Start dependencies
+mongod                             # Terminal 1
+redis-server                       # Terminal 2
+
+# 5. Initialize database (creates collections, indexes, sample data)
+python -m app.db.reset
+
+# 6. Start API server
+uvicorn app.main:app --reload --port 8000
+# → http://localhost:8000/docs
+
+# 7. (Optional) Start Celery worker for background embedding
+celery -A app.celery_app worker -Q embeddings --loglevel=info
 ```
 
-### 2. Configure environment
+---
+
+## Docker
+
+The Docker image is **one image, two purposes**. The same image can run either
+the API server or the Celery worker — controlled by the `SERVICE` env var.
+
+### Build
+
 ```bash
-copy .env.example .env   # Windows
-cp .env.example .env     # Linux/Mac
+docker build -t cuton-backend .
 ```
 
-Set at minimum:
-- `GEMINI_API_KEY` — Get from [Google AI Studio](https://aistudio.google.com/apikey)
-- `MONGO_URI` — Your MongoDB connection string
+### Run — API server
 
-### 3. Start dependencies
 ```bash
-mongod          # Start local MongoDB
-redis-server    # Start local Redis
+docker run -p 8000:8000 \
+  -e MONGO_URI="mongodb+srv://..." \
+  -e GEMINI_API_KEY="..." \
+  -e JWT_SECRET="..." \
+  cuton-backend
 ```
 
-### 4. Initialize the database
+This starts the FastAPI server on port 8000 with a health check at `/health`.
+
+### Run — Celery worker
+
 ```bash
+docker run \
+  -e SERVICE=worker \
+  -e MONGO_URI="mongodb+srv://..." \
+  -e GEMINI_API_KEY="..." \
+  -e REDIS_URL="redis://..." \
+  cuton-backend
+```
+
+### How it works
+
+`docker-entrypoint.sh` checks the `SERVICE` env var:
+
+- `SERVICE=api` (default) → runs `uvicorn app.main:app`
+- `SERVICE=worker` → runs `celery -A app.celery_app worker`
+
+No separate images needed. One build, two run modes.
+
+### Available env vars at runtime
+
+| Env var | Default | For |
+|---|---|---|
+| `SERVICE` | `api` | `api` or `worker` |
+| `UVICORN_WORKERS` | `1` | Number of uvicorn workers |
+| `CELERY_LOGLEVEL` | `info` | Worker log level |
+| `CELERY_QUEUES` | `embeddings` | Celery queues to consume |
+
+---
+
+## Render Deployment
+
+[Render](https://render.com) supports running **multiple services** from the
+**same Docker image**. You create two services in the same Render project:
+
+### 1. Web Service (API)
+
+| Setting | Value |
+|---|---|
+| **Source** | Your Git repo |
+| **Build Command** | `docker build -t cuton-backend .` (Render auto-detects Dockerfile) |
+| **Start Command** | (Leave empty — entrypoint handles it) |
+| **Service Type** | Web Service |
+| **Health Check Path** | `/health` |
+| **Environment** | Add all env vars from `.env.example` |
+
+Render will run the container with default `SERVICE=api`, which starts uvicorn.
+
+### 2. Worker (Celery)
+
+| Setting | Value |
+|---|---|
+| **Source** | Same repo, same Dockerfile |
+| **Service Type** | Background Worker |
+| **Start Command** | (Leave empty — entrypoint handles it) |
+| **Environment** | Add same env vars + `SERVICE=worker` |
+
+Render runs the **same Docker image**, but the `SERVICE=worker` env var tells
+the entrypoint to start Celery instead of uvicorn.
+
+> **Why not one container with both?** The API and worker have different resource
+> profiles. The API needs memory for HTTP connections; the worker needs CPU for
+> embedding generation. Separate containers let you scale them independently
+> (e.g., 2 API instances + 1 worker). If a worker crashes, the API stays up.
+
+---
+
+## Other Providers
+
+### Railway
+
+Same pattern — create two services from the same image:
+
+```
+railway service: web     → SERVICE=api
+railway service: worker  → SERVICE=worker
+```
+
+### Fly.io
+
+```toml
+# fly.toml (web)
+[env]
+  SERVICE = "api"
+
+# Separate fly.toml or process group for worker:
+# fly deploy --config fly.worker.toml
+```
+
+```toml
+# fly.worker.toml
+[env]
+  SERVICE = "worker"
+```
+
+### Docker Compose (local dev)
+
+```yaml
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      SERVICE: api
+      MONGO_URI: mongodb://mongo:27017/cuton_db
+      REDIS_URL: redis://redis:6379/0
+
+  worker:
+    build: .
+    environment:
+      SERVICE: worker
+      MONGO_URI: mongodb://mongo:27017/cuton_db
+      REDIS_URL: redis://redis:6379/0
+    depends_on: [api]
+
+  mongo:
+    image: mongo:7
+  redis:
+    image: redis:7-alpine
+```
+
+---
+
+## Environment Variables
+
+See `.env.example` for the full list with defaults. Minimum required for
+production:
+
+| Variable | Why it's required |
+|---|---|
+| `MONGO_URI` | Database connection |
+| `GEMINI_API_KEY` | All AI features (query, study buddy, quizzes, embeddings) |
+| `JWT_SECRET` | Auth token signing — generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `CORS_ORIGINS` | Your frontend domain(s), comma-separated |
+
+Important optional ones:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `REDIS_HOST` / `REDIS_URL` | `localhost` / — | Redis for Celery + dashboard cache |
+| `SENTRY_DSN` | — | Error monitoring |
+| `BREVO_API_KEY` | — | Transactional email (forgot password) |
+| `ENVIRONMENT` | `development` | Set to `production` in production |
+| `FRONTEND_URL` | `http://localhost:5173` | Used in password reset emails |
+
+---
+
+## Database Operations
+
+### Reset database
+
+Drops all collections and reseeds with sample data:
+
+```bash
+npm run db:reset
+# or
 python -m app.db.reset
 ```
-This creates collections, indexes, and seeds sample data (admin + test user, a topic, document chunks, and a journal entry with real embeddings).
 
-### 5. Start the server
+To only drop data without seeding:
+
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python -m app.db.reset -- --clear-only
 ```
 
-Open http://localhost:8000/docs for the interactive API documentation.
+### Create Atlas Search vector indexes
 
-### 6. Start Celery worker (for background embedding)
+Creates the `vector_index_chunks` and `vector_index_journals` indexes needed
+for semantic search. Works on **M2+ Atlas clusters** (not M0 free tier).
+
+```bash
+npm run db:indexes
+# or
+python -m app.db.create_indexes
+```
+
+If you're on M0, create these indexes manually via the Atlas UI using the
+definitions in [`docs/INDEXES.md`](docs/INDEXES.md).
+
+### What gets seeded
+
+| Data | Details |
+|---|---|
+| Admin user | `admin@cuton.app` / `AdminPassword123!` |
+| Test user | `test@cuton.app` / `TestPassword123!` |
+| Topic | "React State Management" |
+| Source doc | 3 chunks about useState, useReducer, Context API |
+| Journal entry | Personal reflection on useReducer (with real embedding) |
+
+---
+
+## Common Tasks
+
+### Check health
+
+```bash
+curl http://localhost:8000/health
+# → {"status":"ok","project":"CutOn Backend","database":"connected"}
+```
+
+### View API docs
+
+```
+http://localhost:8000/docs      # Swagger UI
+http://localhost:8000/redoc     # ReDoc
+```
+
+### Run type checking
+
+```bash
+mypy app/
+```
+
+### Run the Celery worker standalone (outside Docker)
+
 ```bash
 celery -A app.celery_app worker -Q embeddings --loglevel=info
 ```
 
-## API Overview
+The worker processes two task types:
+- `generate_journal_embedding` — embeds journal entries
+- `generate_document_chunk_embedding` — embeds document chunks
 
-| Prefix | Module | Description |
-|--------|--------|-------------|
-| /api/v1/auth | Auth | Register, login, profile, forgot/reset password |
-| /api/v1/users | Users | CRUD, admin deactivation |
-| /api/v1/topics | Topics | Study topics CRUD |
-| /api/v1/journals | Journals | Journal entries with embedding status |
-| /api/v1/sources | Documents | Upload PDF/DOCX/TXT, list chunks, progress |
-| /api/v1/query | Query | Hybrid vector search with optional LLM synthesis |
-| /api/v1/query/stream | Query | SSE streaming version of query |
-| /api/v1/quizzes | Quizzes | Generate quiz (blind-spot/review), attempt, grade |
-| /api/v1/study-sessions | Study Buddy | Chat sessions, journal confirmations |
-| /api/v1/dashboard | Dashboard | Aggregated stats (5 split endpoints) |
-| /api/v1/notifications | Notifications | List, mark read, unread count |
-| /api/v1/audit | Audit | Admin audit log viewer |
-| /api/v1/rag-evaluations | RAG Evaluation | Quality metrics, admin stats |
-| /health | Health | Lightweight health check |
+On Windows, Celery uses the `solo` pool (forced in `celery_app.py`). On Linux,
+it uses `prefork` for multi-process parallelism.
 
-## Deployment
+### Generate a secure JWT_SECRET
 
-### Critical Environment Variables for Production
-
-See `.env.example` for all options. Essential vars:
-- **`JWT_SECRET`** — Use a strong random value (`python -c "import secrets; print(secrets.token_urlsafe(32))"`)
-- **`GEMINI_API_KEY`** — Required for all AI features
-- **`MONGO_URI`** — MongoDB Atlas URI
-- **`SENTRY_DSN`** — [Sentry](https://sentry.io) DSN for error monitoring
-- **`CORS_ORIGINS`** — Your frontend domain(s)
-- **`ENVIRONMENT`** — Set to `production`
-
-### Infrastructure
-1. **MongoDB Atlas** (or self-hosted MongoDB 7.0+) with Atlas Vector Search enabled
-2. **Redis** (or Upstash, Redis Cloud, etc.)
-3. **Celery worker** — Run as a separate process:
-   ```bash
-   celery -A app.celery_app worker -Q embeddings --loglevel=info --concurrency=2
-   ```
-4. **Web server** — Run with multiple workers:
-   ```bash
-   uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
-   ```
-
-## Tech Stack
-
-| Category | Technology |
-|----------|-----------|
-| Framework | FastAPI (Python 3.12) |
-| Database | MongoDB 7.0+ with Atlas Vector Search |
-| Cache | Redis (with in-memory fallback) |
-| AI | Google Gemini API (text generation + embeddings) |
-| Background Jobs | Celery (Redis broker) |
-| Auth | JWT (PyJWT) + bcrypt |
-| Email | Brevo (SendinBlue) |
-| Monitoring | Sentry (optional) |
-| Rate Limiting | SlowAPI |
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
