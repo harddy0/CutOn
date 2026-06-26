@@ -79,7 +79,8 @@ celery -A app.celery_app worker -Q embeddings --loglevel=info
 ## Docker
 
 The Docker image is **one image, two purposes**. The same image can run either
-the API server or the Celery worker — controlled by the `SERVICE` env var.
+the API server, the Celery worker, or both together — controlled by the
+`SERVICE` env var.
 
 ### Build
 
@@ -110,12 +111,27 @@ docker run \
   cuton-backend
 ```
 
+### Run — API server + Celery worker
+
+```bash
+docker run \
+  -e SERVICE=both \
+  -e MONGO_URI="mongodb+srv://..." \
+  -e GEMINI_API_KEY="..." \
+  -e REDIS_URL="redis://..." \
+  cuton-backend
+```
+
+This is the portfolio-friendly mode: one container runs the FastAPI server in
+the foreground and starts the Celery worker alongside it.
+
 ### How it works
 
 `docker-entrypoint.sh` checks the `SERVICE` env var:
 
 - `SERVICE=api` (default) → runs `uvicorn app.main:app`
 - `SERVICE=worker` → runs `celery -A app.celery_app worker`
+- `SERVICE=both` → runs uvicorn and Celery worker in the same container
 
 No separate images needed. One build, two run modes.
 
@@ -123,7 +139,7 @@ No separate images needed. One build, two run modes.
 
 | Env var | Default | For |
 |---|---|---|
-| `SERVICE` | `api` | `api` or `worker` |
+| `SERVICE` | `api` | `api`, `worker`, or `both` |
 | `UVICORN_WORKERS` | `1` | Number of uvicorn workers |
 | `CELERY_LOGLEVEL` | `info` | Worker log level |
 | `CELERY_QUEUES` | `embeddings` | Celery queues to consume |

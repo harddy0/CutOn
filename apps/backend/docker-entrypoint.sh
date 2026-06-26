@@ -6,8 +6,9 @@
 #  worker, controlled by the $SERVICE environment variable.
 #
 #  Three ways to run:
-#    docker run cuton-backend                              # FastAPI (default)
-#    docker run -e SERVICE=worker cuton-backend             # Celery worker
+#    docker run cuton-backend                               # FastAPI (default)
+#    docker run -e SERVICE=worker cuton-backend              # Celery worker
+#    docker run -e SERVICE=both cuton-backend                # FastAPI + Celery worker
 #    docker run cuton-backend celery -A app.celery_app worker -Q embeddings  # CMD override
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -26,25 +27,49 @@ CELERY_LOGLEVEL="${CELERY_LOGLEVEL:-info}"
 CELERY_QUEUES="${CELERY_QUEUES:-embeddings}"
 
 # ── Run ───────────────────────────────────────────────────────────────────────
+start_api() {
+  exec uvicorn \
+    app.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers "$UVICORN_WORKERS" \
+    --proxy-headers \
+    --forwarded-allow-ips "*"
+}
+
+start_worker() {
+  exec celery \
+    -A app.celery_app \
+    worker \
+    -Q "$CELERY_QUEUES" \
+    --loglevel="$CELERY_LOGLEVEL"
+}
+
 case "$SERVICE" in
   api)
-    exec uvicorn \
-      app.main:app \
-      --host 0.0.0.0 \
-      --port 8000 \
-      --workers "$UVICORN_WORKERS" \
-      --proxy-headers \
-      --forwarded-allow-ips "*"
+    start_api
     ;;
   worker)
-    exec celery \
+    start_worker
+    ;;
+  both)
+    celery \
       -A app.celery_app \
       worker \
       -Q "$CELERY_QUEUES" \
-      --loglevel="$CELERY_LOGLEVEL"
+      --loglevel="$CELERY_LOGLEVEL" &
+    worker_pid=$!
+
+    cleanup() {
+      kill "$worker_pid" 2>/dev/null || true
+      wait "$worker_pid" 2>/dev/null || true
+    }
+
+    trap cleanup INT TERM EXIT
+    start_api
     ;;
   *)
-    echo "ERROR: Unknown SERVICE '$SERVICE'. Use 'api' or 'worker'." >&2
+    echo "ERROR: Unknown SERVICE '$SERVICE'. Use 'api', 'worker', or 'both'." >&2
     exit 1
     ;;
 esac

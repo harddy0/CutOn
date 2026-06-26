@@ -10,6 +10,7 @@
 #    docker build -t cuton-backend .
 #    docker run -p 8000:8000 cuton-backend                  # FastAPI server
 #    docker run -e SERVICE=worker cuton-backend              # Celery worker
+#    docker run -e SERVICE=both cuton-backend                # FastAPI + Celery worker
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ==============================================================================
