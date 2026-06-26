@@ -22,6 +22,7 @@ fi
 
 # ── Config ────────────────────────────────────────────────────────────────────
 SERVICE="${SERVICE:-api}"
+PORT="${PORT:-8000}"
 UVICORN_WORKERS="${UVICORN_WORKERS:-1}"
 CELERY_LOGLEVEL="${CELERY_LOGLEVEL:-info}"
 CELERY_QUEUES="${CELERY_QUEUES:-embeddings}"
@@ -31,7 +32,7 @@ start_api() {
   exec uvicorn \
     app.main:app \
     --host 0.0.0.0 \
-    --port 8000 \
+    --port "$PORT" \
     --workers "$UVICORN_WORKERS" \
     --proxy-headers \
     --forwarded-allow-ips "*"

@@ -163,6 +163,8 @@ No separate images needed. One build, two run modes.
 | **Environment**       | Add all env vars from `.env.example`                               |
 
 Render will run the container with default `SERVICE=api`, which starts uvicorn.
+The API must bind to Render's assigned `PORT`, which the entrypoint now reads
+automatically.
 
 ### 2. Worker (Celery)
 
@@ -175,6 +177,8 @@ Render will run the container with default `SERVICE=api`, which starts uvicorn.
 
 Render runs the **same Docker image**, but the `SERVICE=worker` env var tells
 the entrypoint to start Celery instead of uvicorn.
+Use a **Background Worker** service here; a Web Service will fail with "no port
+detected" because Celery does not listen on HTTP ports.
 
 > **Why not one container with both?** The API and worker have different resource
 > profiles. The API needs memory for HTTP connections; the worker needs CPU for
