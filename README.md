@@ -1,160 +1,219 @@
-# Turborepo starter
+<div align="center">
 
-This Turborepo starter is maintained by the Turborepo core team.
+<br />
 
-## Using this example
+<img src="screenshots/landing.png" alt="CutOn Landing Page" width="900" style="border-radius: 12px; border: 2px solid #1A1A1A; box-shadow: 8px 8px 0px 0px #1A1A1A;" />
 
-Run the following command:
+<br /><br />
 
-```sh
-npx create-turbo@latest
+# CutOn
+
+### Your knowledge, deconstructed. Reconstructed.
+
+**Hybrid RAG learning system** — Upload PDFs, write journal entries, chat with an AI Study Buddy, and generate blind-spot quizzes. Everything stays yours.
+
+<br />
+
+<p>
+  <a href="#-features"><strong>Features</strong></a> ·
+  <a href="#-quick-start"><strong>Quick Start</strong></a> ·
+  <a href="#-architecture"><strong>Architecture</strong></a> ·
+  <a href="#-tech-stack"><strong>Tech Stack</strong></a> ·
+  <a href="#screenshots"><strong>Screenshots</strong></a>
+</p>
+
+<br />
+
+</div>
+
+---
+
+## ⚡ Overview
+
+CutOn turns a folder of PDFs and scattered notes into a **living, queryable knowledge base**. Instead of just collecting files, you actually *learn* from them.
+
+The engine uses a **hybrid RAG (Retrieval-Augmented Generation)** approach — queries run simultaneously against document chunks AND personal journal entries, then merge results by relevance with full provenance tracking.
+
+> **No files stored.** Documents are parsed, chunked, embedded into a vector index, then discarded. Zero-storage pipeline. No cloud bills. No privacy risk.
+
+---
+
+## 🎯 Features
+
+<div align="center">
+
+| | |
+|---|---|
+| <img src="screenshots/login.png" alt="Login Page" width="450" style="border-radius: 8px; border: 2px solid #1A1A1A; box-shadow: 4px 4px 0px 0px #1A1A1A;" /> | <img src="screenshots/landing.png" alt="Landing Page" width="450" style="border-radius: 8px; border: 2px solid #1A1A1A; box-shadow: 4px 4px 0px 0px #1A1A1A;" /> |
+
+</div>
+
+### 🧠 Ephemeral Ingestion
+Upload PDFs and TXT files. They're parsed, chunked, embedded into a vector index, then **discarded**. No lingering file bloat.
+
+### 🔍 Hybrid Semantic Search
+Every query runs simultaneously against your document chunks **AND** personal journal entries. Results are merged by relevance with provenance back to the source.
+
+### 🤖 AI Study Buddy
+A tutor that answers **exclusively from your own materials** — no hallucination, no generic fluff. Suggests journal entries and quizzes based on what you discuss.
+
+### 🎯 Blind-Spot Quizzes
+The engine compares what you've uploaded against what you've journaled. It generates targeted quizzes exposing **exactly what you haven't internalized yet**.
+
+### 📓 Learning Journal
+Personal notes, reflections, and debugging logs — your second brain. Each entry is embedded alongside source docs, making it searchable.
+
+### 🔔 Smart Notifications
+Get notified when document processing completes, embedding finishes, and more.
+
+---
+
+## 🏗️ Workflow
+
+```
+Upload → Chunk → Embed → Journal → Query → Quiz
 ```
 
-## What's inside?
+| Step | What happens |
+|------|-------------|
+| **01** | Drop a PDF or TXT into your topic folder |
+| **02** | Backend chunks & embeds in the background |
+| **03** | Study the material at your own pace |
+| **04** | Write journal entries about breakthroughs & bugs |
+| **05** | Query your combined knowledge with AI |
+| **06** | Generate blind-spot quizzes to lock it in |
 
-This Turborepo includes the following packages/apps:
+---
 
-### Apps and Packages
+## 🚀 Quick Start
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+### Prerequisites
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+- **Python 3.13+**
+- **MongoDB** (local or Atlas)
+- **Redis** (local or cloud, e.g. Upstash)
+- **Google AI Studio API key** (for Gemini)
 
-### Utilities
+### Setup
 
-This Turborepo has some additional tools already setup for you:
+```bash
+# Clone and navigate
+git clone https://github.com/your-org/cuton
+cd cuton
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+# Frontend
+npm install
+npm run dev -w web
+# → http://localhost:3000
 
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+# Backend (in a new terminal)
+cd apps/backend
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# .venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+cp .env.example .env       # Edit with your keys
+uvicorn app.main:app --reload --port 8000
+# → http://localhost:8000/docs
 ```
 
-Without global `turbo`, use your package manager:
+> **Minimum env vars:** `GEMINI_API_KEY`, `MONGO_URI`, `JWT_SECRET`
 
-```sh
-cd my-turborepo
-npx turbo build
-npm dlx turbo build
-npm exec turbo build
+---
+
+## 🧱 Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│               Next.js Frontend              │
+│  Dashboard · Study Buddy · Quizzes · Journal│
+└──────────────────┬──────────────────────────┘
+                   │ REST + SSE
+┌──────────────────▼──────────────────────────┐
+│             FastAPI Backend                  │
+│  Auth · Topics · Sources · Journal · Query   │
+│  Study Buddy · Quizzes · Notifications · RAG │
+└───────┬──────────────────┬──────────────────┘
+        │                  │
+┌───────▼──────┐   ┌──────▼───────┐
+│   MongoDB    │   │    Redis     │
+│  (Primary)   │   │   (Cache +   │
+│              │   │    Celery)   │
+└──────────────┘   └──────────────┘
+        │
+┌───────▼──────────────────────────────────────┐
+│           Gemini AI (Google)                 │
+│  Embeddings · Chat · Quiz Generation         │
+└──────────────────────────────────────────────┘
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### Backend Modules
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+| Module | What it does |
+|--------|-------------|
+| `auth` | JWT-based auth with forgot/reset password flow |
+| `users` | User profiles & role management |
+| `topics` | Learning topic organization |
+| `documents` | File upload, parsing, chunking (PDF/TXT) |
+| `journal` | Personal learning journal with embeddings |
+| `query` | Hybrid RAG search (documents + journals) |
+| `study_buddy` | AI chat with context-aware tutoring |
+| `quizzes` | Blind-spot & topic review quiz generation |
+| `rag_evaluation` | RAG response quality rating |
+| `notifications` | In-app notifications |
+| `dashboard` | Aggregated stats with Redis caching |
+| `audit` | Admin audit logging |
+| `embeddings` | Background vector embedding via Celery |
 
-```sh
-turbo build --filter=docs
-```
+---
 
-Without global `turbo`:
+## 🛠️ Tech Stack
 
-```sh
-npx turbo build --filter=docs
-npm exec turbo build --filter=docs
-npm exec turbo build --filter=docs
-```
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
+| **Backend** | FastAPI (Python 3.13+), Pydantic v2 |
+| **Database** | MongoDB (with Atlas Vector Search) |
+| **Cache** | Redis (caching + Celery broker) |
+| **AI** | Google Gemini (embedding + chat + generation) |
+| **Background Jobs** | Celery (document chunking, embedding) |
+| **Auth** | JWT (HS256) |
+| **Email** | Brevo (transactional emails) |
+| **Monitoring** | Sentry (error tracking) |
+| **Deployment** | Docker (single image, multi-purpose) |
 
-### Develop
+---
 
-To develop all apps and packages, run the following command:
+## Screenshots
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+<div align="center">
 
-```sh
-cd my-turborepo
-turbo dev
-```
+### Landing Page
+<img src="screenshots/landing.png" alt="Landing Page" width="800" style="border-radius: 8px; border: 2px solid #1A1A1A; box-shadow: 4px 4px 0px 0px #1A1A1A;" />
 
-Without global `turbo`, use your package manager:
+### Login Page
+<img src="screenshots/login.png" alt="Login Page" width="800" style="border-radius: 8px; border: 2px solid #1A1A1A; box-shadow: 4px 4px 0px 0px #1A1A1A;" />
 
-```sh
-cd my-turborepo
-npx turbo dev
-npm exec turbo dev
-npm exec turbo dev
-```
+</div>
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+---
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+## 📖 Learn More
 
-```sh
-turbo dev --filter=web
-```
+- [Backend Operations Guide](apps/backend/README.md) — deployment, env vars, CLI commands
+- [Database Indexes](apps/backend/docs/INDEXES.md) — Atlas Search vector index setup
+- [Study Buddy](apps/backend/docs/STUDY_BUDDY.md) — AI tutor system prompt & behavior
 
-Without global `turbo`:
+---
 
-```sh
-npx turbo dev --filter=web
-npm exec turbo dev --filter=web
-npm exec turbo dev --filter=web
-```
+<div align="center">
 
-### Remote Caching
+<br />
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+**Built with sweat, late-night coffee, and the unshakeable belief that learning should be systematic.**
 
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
+<br />
 
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
+<sub>CutOn © 2026 · [Report Bug](../../issues) · [Request Feature](../../issues)</sub>
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-npm exec turbo login
-npm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-npm exec turbo link
-npm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
-"# CutOn" 
+</div>
