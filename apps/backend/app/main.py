@@ -52,9 +52,21 @@ logger = logging.getLogger("cuton")
 # Sentry — initialise before anything else so we capture startup crashes
 # ---------------------------------------------------------------------------
 
-if settings.sentry_dsn:
+# Strip accidental quote wrapping from env values & validate DSN looks plausible
+def _valid_sentry_dsn(dsn: str) -> str | None:
+    """Return the DSN stripped of quotes+whitespace, or None if invalid."""
+    cleaned = dsn.strip("'\" \t\n") if dsn else ""
+    if not cleaned:
+        return None
+    if not cleaned.startswith("https://"):
+        return None
+    return cleaned
+
+
+sentry_dsn = _valid_sentry_dsn(settings.sentry_dsn)
+if sentry_dsn:
     sentry_sdk.init(
-        dsn=settings.sentry_dsn,
+        dsn=sentry_dsn,
         environment=settings.environment,
         traces_sample_rate=settings.sentry_traces_sample_rate,
         send_default_pii=False,
