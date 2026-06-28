@@ -2,15 +2,12 @@
 
 <br />
 
-<img src="screenshots/landing.png" alt="CutOn Landing Page" width="900" style="border-radius: 12px; border: 2px solid #1A1A1A; box-shadow: 8px 8px 0px 0px #1A1A1A;" />
-
-<br /><br />
-
 # CutOn
 
-### Your knowledge, deconstructed. Reconstructed.
+**Your knowledge, deconstructed. Reconstructed.**
 
-**Hybrid RAG learning system** — Upload PDFs, write journal entries, chat with an AI Study Buddy, and generate blind-spot quizzes. Everything stays yours.
+Hybrid RAG learning system — ingest PDFs, write journal entries, chat with an AI Study Buddy, 
+and generate blind-spot quizzes. Everything stays yours.
 
 <br />
 
@@ -18,8 +15,8 @@
   <a href="#-features"><strong>Features</strong></a> ·
   <a href="#-quick-start"><strong>Quick Start</strong></a> ·
   <a href="#-architecture"><strong>Architecture</strong></a> ·
-  <a href="#-tech-stack"><strong>Tech Stack</strong></a> ·
-  <a href="#screenshots"><strong>Screenshots</strong></a>
+  <a href="#%EF%B8%8F-tech-stack"><strong>Tech Stack</strong></a> ·
+  <a href="apps/backend/README.md"><strong>Backend Docs</strong></a>
 </p>
 
 <br />
@@ -28,47 +25,36 @@
 
 ---
 
-## ⚡ Overview
+## Overview
 
-CutOn turns a folder of PDFs and scattered notes into a **living, queryable knowledge base**. Instead of just collecting files, you actually *learn* from them.
+CutOn turns a folder of PDFs and scattered notes into a living, queryable knowledge base. 
+Instead of just collecting files, you actually learn from them.
 
-The engine uses a **hybrid RAG (Retrieval-Augmented Generation)** approach — queries run simultaneously against document chunks AND personal journal entries, then merge results by relevance with full provenance tracking.
+The engine uses a **hybrid RAG** approach — queries run simultaneously against document chunks 
+*and* personal journal entries, then merge results by relevance with full provenance tracking.
 
-> **No files stored.** Documents are parsed, chunked, embedded into a vector index, then discarded. Zero-storage pipeline. No cloud bills. No privacy risk.
-
----
-
-## 🎯 Features
-
-<div align="center">
-
-| | |
-|---|---|
-| <img src="screenshots/login.png" alt="Login Page" width="450" style="border-radius: 8px; border: 2px solid #1A1A1A; box-shadow: 4px 4px 0px 0px #1A1A1A;" /> | <img src="screenshots/landing.png" alt="Landing Page" width="450" style="border-radius: 8px; border: 2px solid #1A1A1A; box-shadow: 4px 4px 0px 0px #1A1A1A;" /> |
-
-</div>
-
-### 🧠 Ephemeral Ingestion
-Upload PDFs and TXT files. They're parsed, chunked, embedded into a vector index, then **discarded**. No lingering file bloat.
-
-### 🔍 Hybrid Semantic Search
-Every query runs simultaneously against your document chunks **AND** personal journal entries. Results are merged by relevance with provenance back to the source.
-
-### 🤖 AI Study Buddy
-A tutor that answers **exclusively from your own materials** — no hallucination, no generic fluff. Suggests journal entries and quizzes based on what you discuss.
-
-### 🎯 Blind-Spot Quizzes
-The engine compares what you've uploaded against what you've journaled. It generates targeted quizzes exposing **exactly what you haven't internalized yet**.
-
-### 📓 Learning Journal
-Personal notes, reflections, and debugging logs — your second brain. Each entry is embedded alongside source docs, making it searchable.
-
-### 🔔 Smart Notifications
-Get notified when document processing completes, embedding finishes, and more.
+> No files stored. Documents are parsed, chunked, embedded into a vector index, then discarded. 
+> Zero-storage pipeline. No cloud bills. No privacy risk.
 
 ---
 
-## 🏗️ Workflow
+## Features
+
+**Ephemeral Ingestion** — Upload PDFs and TXT files. They're parsed, chunked, embedded, then discarded. No lingering bloat.
+
+**Hybrid Semantic Search** — Every query hits your document chunks *and* journal entries simultaneously. Results merged by relevance with source provenance.
+
+**AI Study Buddy** — A tutor that answers exclusively from your own materials. No hallucination, no generic fluff. Suggests journal entries and quizzes as you go.
+
+**Blind-Spot Quizzes** — The engine compares what you've uploaded against what you've journaled. It generates targeted quizzes exposing what you haven't internalized yet.
+
+**Learning Journal** — Personal notes, reflections, and debugging logs. Each entry is embedded alongside source docs, making everything searchable.
+
+**Smart Notifications** — Get notified when document processing completes, embeddings finish, and more.
+
+---
+
+## Workflow
 
 ```
 Upload → Chunk → Embed → Journal → Query → Quiz
@@ -76,90 +62,73 @@ Upload → Chunk → Embed → Journal → Query → Quiz
 
 | Step | What happens |
 |------|-------------|
-| **01** | Drop a PDF or TXT into your topic folder |
-| **02** | Backend chunks & embeds in the background |
-| **03** | Study the material at your own pace |
-| **04** | Write journal entries about breakthroughs & bugs |
-| **05** | Query your combined knowledge with AI |
-| **06** | Generate blind-spot quizzes to lock it in |
+| **01** — Upload & Ingest | Drop a PDF or TXT into a topic folder. Backend chunks & embeds in the background. No files stored. |
+| **02** — Learn & Journal | Study at your own pace. Write journal entries about breakthroughs & bugs. Each entry is embedded. |
+| **03** — Search & Master | Query your combined knowledge with AI. Retrieve relevant chunks + journal context. Generate blind-spot quizzes. |
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### Prerequisites
-
-- **Python 3.13+**
-- **MongoDB** (local or Atlas)
-- **Redis** (local or cloud, e.g. Upstash)
-- **Google AI Studio API key** (for Gemini)
-
-### Setup
+**Prerequisites:** Python 3.13+, MongoDB, Redis, Google AI Studio API key (Gemini)
 
 ```bash
-# Clone and navigate
-git clone https://github.com/your-org/cuton
-cd cuton
-
 # Frontend
 npm install
 npm run dev -w web
-# → http://localhost:3000
 
-# Backend (in a new terminal)
+# Backend (separate terminal)
 cd apps/backend
 python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
+# source .venv/bin/activate  (Linux/Mac)
+# .venv\Scripts\activate     (Windows)
 pip install -r requirements.txt
-cp .env.example .env       # Edit with your keys
+cp .env.example .env          # Edit with your keys
 uvicorn app.main:app --reload --port 8000
-# → http://localhost:8000/docs
 ```
 
-> **Minimum env vars:** `GEMINI_API_KEY`, `MONGO_URI`, `JWT_SECRET`
+Minimum env vars: `GEMINI_API_KEY`, `MONGO_URI`, `JWT_SECRET`
 
 ---
 
-## 🧱 Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│               Next.js Frontend              │
-│  Dashboard · Study Buddy · Quizzes · Journal│
-└──────────────────┬──────────────────────────┘
-                   │ REST + SSE
-┌──────────────────▼──────────────────────────┐
-│             FastAPI Backend                  │
-│  Auth · Topics · Sources · Journal · Query   │
-│  Study Buddy · Quizzes · Notifications · RAG │
-└───────┬──────────────────┬──────────────────┘
-        │                  │
-┌───────▼──────┐   ┌──────▼───────┐
-│   MongoDB    │   │    Redis     │
-│  (Primary)   │   │   (Cache +   │
-│              │   │    Celery)   │
-└──────────────┘   └──────────────┘
-        │
-┌───────▼──────────────────────────────────────┐
-│           Gemini AI (Google)                 │
-│  Embeddings · Chat · Quiz Generation         │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│            Next.js Frontend               │
+│  Dashboard · Study Buddy · Quizzes · etc │
+└─────────────────┬────────────────────────┘
+                  │ REST + SSE
+┌─────────────────▼────────────────────────┐
+│            FastAPI Backend                │
+│  Auth · Sources · Journal · Query · Chat  │
+│  Quizzes · Notifications · RAG · Audit    │
+└──────┬─────────────────────┬─────────────┘
+       │                     │
+┌──────▼──────┐     ┌───────▼───────┐
+│   MongoDB   │     │    Redis      │
+│  (Primary)  │     │  Cache+Broker │
+└─────────────┘     └───────────────┘
+       │
+┌──────▼──────────────────────────────────┐
+│          Gemini AI (Google)             │
+│  Embeddings · Chat · Quiz Generation    │
+└─────────────────────────────────────────┘
 ```
 
 ### Backend Modules
 
-| Module | What it does |
-|--------|-------------|
-| `auth` | JWT-based auth with forgot/reset password flow |
-| `users` | User profiles & role management |
+| Module | Purpose |
+|--------|---------|
+| `auth` | JWT auth with forgot/reset password flow |
+| `users` | Profiles & role management |
 | `topics` | Learning topic organization |
 | `documents` | File upload, parsing, chunking (PDF/TXT) |
 | `journal` | Personal learning journal with embeddings |
 | `query` | Hybrid RAG search (documents + journals) |
 | `study_buddy` | AI chat with context-aware tutoring |
 | `quizzes` | Blind-spot & topic review quiz generation |
-| `rag_evaluation` | RAG response quality rating |
+| `rag_evaluation` | RAG response quality ratings |
 | `notifications` | In-app notifications |
 | `dashboard` | Aggregated stats with Redis caching |
 | `audit` | Admin audit logging |
@@ -167,42 +136,30 @@ uvicorn app.main:app --reload --port 8000
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
-| **Backend** | FastAPI (Python 3.13+), Pydantic v2 |
-| **Database** | MongoDB (with Atlas Vector Search) |
+| **Backend** | FastAPI, Pydantic v2, Python 3.13+ |
+| **Database** | MongoDB (Atlas Vector Search) |
 | **Cache** | Redis (caching + Celery broker) |
-| **AI** | Google Gemini (embedding + chat + generation) |
-| **Background Jobs** | Celery (document chunking, embedding) |
+| **AI** | Google Gemini (embedding, chat, generation) |
+| **Background Jobs** | Celery |
 | **Auth** | JWT (HS256) |
-| **Email** | Brevo (transactional emails) |
-| **Monitoring** | Sentry (error tracking) |
+| **Email** | Brevo |
+| **Monitoring** | Sentry |
 | **Deployment** | Docker (single image, multi-purpose) |
 
 ---
 
-## Screenshots
+## Backend Docs
 
-<div align="center">
+For detailed deployment, environment variables, CLI commands, and database operations:
 
-### Landing Page
-<img src="screenshots/landing.png" alt="Landing Page" width="800" style="border-radius: 8px; border: 2px solid #1A1A1A; box-shadow: 4px 4px 0px 0px #1A1A1A;" />
-
-### Login Page
-<img src="screenshots/login.png" alt="Login Page" width="800" style="border-radius: 8px; border: 2px solid #1A1A1A; box-shadow: 4px 4px 0px 0px #1A1A1A;" />
-
-</div>
-
----
-
-## 📖 Learn More
-
-- [Backend Operations Guide](apps/backend/README.md) — deployment, env vars, CLI commands
-- [Database Indexes](apps/backend/docs/INDEXES.md) — Atlas Search vector index setup
-- [Study Buddy](apps/backend/docs/STUDY_BUDDY.md) — AI tutor system prompt & behavior
+- [Backend Operations Guide](apps/backend/README.md)
+- [Database Indexes — Atlas Vector Search](apps/backend/docs/INDEXES.md)
+- [Study Buddy — AI tutor system prompt & behavior](apps/backend/docs/STUDY_BUDDY.md)
 
 ---
 
@@ -210,10 +167,10 @@ uvicorn app.main:app --reload --port 8000
 
 <br />
 
-**Built with sweat, late-night coffee, and the unshakeable belief that learning should be systematic.**
+Built with sweat, late-night coffee, and the belief that learning should be systematic.
 
 <br />
 
-<sub>CutOn © 2026 · [Report Bug](../../issues) · [Request Feature](../../issues)</sub>
+<sub>CutOn © 2026</sub>
 
 </div>
